@@ -1,0 +1,6 @@
+{
+  "name": "BINISTA",
+  "description": "BINISTA - Official Real-Time Live Chat, Reels & Social Community Platform.",
+  "requestFramePermissions": ["camera", "geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,680 @@
+import React, { useState, useEffect } from "react";
+import { 
+  Plus, Save, Trash2, Edit2, X, Upload, Video as VideoIcon,
+  CheckCircle2, AlertCircle, Loader2, Image as ImageIcon, Play, Link as LinkIcon
+} from "lucide-react";
+
+const YoutubeIcon: React.FC<{ className?: string }> = ({ className = "w-5 h-5" }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+    <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
+  </svg>
+);
+import { motion, AnimatePresence } from "motion/react";
+import { db } from "../../lib/firebase";
+import { 
+  collection, addDoc, getDocs, deleteDoc, 
+  doc, updateDoc, query, orderBy, onSnapshot
+} from "firebase/firestore";
+import { compressBannerImage } from "../../lib/imageUtils";
+import { getYouTubeVideoId } from "../DynamicBannerSlider";
+import { saveVideoToDB, getVideoFromDB } from "../../lib/videoStorage";
+
+export interface MainBanner {
+  id: string;
+  type: "image" | "youtube" | "video";
+  image?: string;
+  videoUrl?: string;
+  title?: string;
+  subtitle?: string;
+  order: number;
+  createdAt: number;
+}
+
+export const MainBannerManagement: React.FC = () => {
+  const [banners, setBanners] = useState<MainBanner[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [isAdding, setIsAdding] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ text: string; isError?: boolean } | null>(null);
+
+  // Form states
+  const [mediaType, setMediaType] = useState<"youtube" | "image" | "video">("youtube");
+  const [image, setImage] = useState("");
+  const [videoUrl, setVideoUrl] = useState("");
+  const [title, setTitle] = useState("");
+  const [subtitle, setSubtitle] = useState("");
+  const [isUploading, setIsUploading] = useState(false);
+  const [saveLoading, setSaveLoading] = useState(false);
+
+  useEffect(() => {
+    const q = query(collection(db, "main_banners"), orderBy("order", "asc"));
+    const unsub = onSnapshot(q, async (snapshot) => {
+      const data = await Promise.all(snapshot.docs.map(async (docSnap) => {
+        const item = docSnap.data();
+        let resolvedVideoUrl = item.videoUrl || "";
+
+        if (resolvedVideoUrl.startsWith("local_idb:")) {
+          const videoId = resolvedVideoUrl.replace("local_idb:", "");
+          const stored = await getVideoFromDB(videoId);
+          if (stored) {
+            resolvedVideoUrl = stored;
+          }
+        }
+
+        return {
+          id: docSnap.id,
+          type: item.type || (item.videoUrl ? "video" : "image"),
+          image: item.image || "",
+          videoUrl: resolvedVideoUrl,
+          title: item.title || "",
+          subtitle: item.subtitle || "",
+          order: item.order || 0,
+          createdAt: item.createdAt || Date.now()
+        } as MainBanner;
+      }));
+
+      setBanners(data);
+      setLoading(false);
+    }, (error) => {
+      console.warn("Main banner listener notice:", error.message);
+      setLoading(false);
+    });
+    return () => unsub();
+  }, []);
+
+  const showToast = (text: string, isError = false) => {
+    setToast({ text, isError });
+    setTimeout(() => setToast(null), 3000);
+  };
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsUploading(true);
+    try {
+      const base64 = await compressBannerImage(file);
+      setImage(base64);
+      showToast("ছবি আপলোড হয়েছে");
+    } catch (error) {
+      showToast("ছবি আপলোড ব্যর্থ হয়েছে", true);
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleVideoFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 50 * 1024 * 1024) {
+      showToast("ভিডিও ফাইলটি বেশ বড় (৫০MB এর কম আকারের ভিডিও দিন)", true);
+      return;
+    }
+
+    setIsUploading(true);
+    try {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const result = event.target?.result as string;
+        if (result) {
+          setVideoUrl(result);
+          showToast("গ্যালারি থেকে ভিডিও আপলোড সম্পন্ন হয়েছে!");
+        }
+        setIsUploading(false);
+      };
+      reader.onerror = () => {
+        showToast("ভিডিও ফাইল পড়তে ব্যর্থ হয়েছে", true);
+        setIsUploading(false);
+      };
+      reader.readAsDataURL(file);
+    } catch (error) {
+      showToast("ভিডিও প্রসেস করতে সমস্যা হয়েছে", true);
+      setIsUploading(false);
+    }
+  };
+
+  const handleSave = async () => {
+    if (mediaType === "image" && !image) {
+      return showToast("দয়া করে ছবি সিলেক্ট অথবা আপলোড করুন", true);
+    }
+    if (mediaType === "youtube" && !videoUrl.trim()) {
+      return showToast("দয়া করে ইউটিউব ভিডিও লিংক দিন", true);
+    }
+    if (mediaType === "video" && !videoUrl.trim()) {
+      return showToast("দয়া করে গ্যালারি থেকে ভিডিও ফাইল সিলেক্ট অথবা লিংক দিন", true);
+    }
+
+    setSaveLoading(true);
+    try {
+      let finalVideoUrl = videoUrl.trim();
+      let docVideoId = editingId || `vid_${Date.now()}`;
+
+      // Handle heavy gallery video files (> 500KB Data URLs) using IndexedDB
+      if (mediaType === "video" && finalVideoUrl.startsWith("data:video")) {
+        await saveVideoToDB(docVideoId, finalVideoUrl);
+
+        // Also update local storage cache for instant 0ms app start playback
+        try {
+          const cachedList = JSON.parse(localStorage.getItem("almayadin_main_banners_cache_v2") || "[]");
+          const updatedList = [
+            {
+              id: docVideoId,
+              type: "video",
+              videoUrl: finalVideoUrl,
+              title: title.trim(),
+              subtitle: subtitle.trim(),
+              order: 0
+            },
+            ...cachedList.filter((b: any) => b.id !== docVideoId)
+          ];
+          localStorage.setItem("almayadin_main_banners_cache_v2", JSON.stringify(updatedList));
+        } catch (e) {
+          console.warn("Local storage cache update notice:", e);
+        }
+
+        // Lightweight Firestore reference to avoid Firestore 1MB document size limit
+        finalVideoUrl = `local_idb:${docVideoId}`;
+      }
+
+      const bannerData = {
+        type: mediaType,
+        image: mediaType === "image" ? image : "",
+        videoUrl: (mediaType === "youtube" || mediaType === "video") ? finalVideoUrl : "",
+        title: title.trim(),
+        subtitle: subtitle.trim(),
+        updatedAt: Date.now()
+      };
+
+      if (editingId) {
+        await updateDoc(doc(db, "main_banners", editingId), bannerData);
+        showToast("গ্যালারি ভিডিও ও তথ্য সফলভাবে সেভ করা হয়েছে!");
+      } else {
+        await addDoc(collection(db, "main_banners"), {
+          ...bannerData,
+          order: banners.length,
+          createdAt: Date.now()
+        });
+        showToast("নতুন ভিডিও সফলভাবে সেভ ও লাইভ করা হয়েছে!");
+      }
+      resetForm();
+    } catch (error: any) {
+      console.error("Save error:", error);
+      showToast("সেভ করতে সমস্যা হয়েছে: " + (error?.message || "চেষ্টা করুন"), true);
+    } finally {
+      setSaveLoading(false);
+    }
+  };
+
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+
+  const handleDelete = (id: string) => {
+    setDeleteConfirmId(id);
+  };
+
+  const executeDelete = async (id: string) => {
+    setDeleteLoading(true);
+    try {
+      // 1. Delete from Firestore
+      await deleteDoc(doc(db, "main_banners", id));
+
+      // 2. Remove from local state immediately for instant feedback
+      setBanners(prev => prev.filter(b => b.id !== id));
+
+      // 3. Clean up local storage cache
+      try {
+        const saved = localStorage.getItem("almayadin_main_banners_cache_v2");
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed)) {
+            const updated = parsed.filter((item: any) => item.id !== id);
+            localStorage.setItem("almayadin_main_banners_cache_v2", JSON.stringify(updated));
+          }
+        }
+      } catch (e) {
+        console.warn("Local storage cache cleanup notice:", e);
+      }
+
+      showToast("সফলভাবে ডিলিট করা হয়েছে");
+    } catch (error: any) {
+      console.error("Delete error:", error);
+      showToast("ডিলিট করতে সমস্যা হয়েছে: " + (error?.message || "চেষ্টা করুন"), true);
+    } finally {
+      setDeleteLoading(false);
+      setDeleteConfirmId(null);
+    }
+  };
+
+  const resetForm = () => {
+    setMediaType("youtube");
+    setImage("");
+    setVideoUrl("");
+    setTitle("");
+    setSubtitle("");
+    setEditingId(null);
+    setIsAdding(false);
+  };
+
+  const startEdit = (banner: MainBanner) => {
+    setMediaType(banner.type || (banner.videoUrl ? "youtube" : "image"));
+    setImage(banner.image || "");
+    setVideoUrl(banner.videoUrl || "");
+    setTitle(banner.title || "");
+    setSubtitle(banner.subtitle || "");
+    setEditingId(banner.id);
+    setIsAdding(true);
+  };
+
+  const ytPreviewId = mediaType === "youtube" ? getYouTubeVideoId(videoUrl) : "";
+
+  return (
+    <div className="w-full max-w-5xl mx-auto p-4 md:p-6 pb-20">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-8">
+        <div>
+          <h2 className="text-2xl font-black text-gray-900 italic uppercase flex items-center gap-2">
+            <span>মেইন ড্যাশবোর্ড ভিডিও ও ব্যানার ম্যানেজার</span>
+            <span className="px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-bold text-xs">সচল</span>
+          </h2>
+          <p className="text-sm text-gray-500 font-medium mt-1">
+            হোম পেজের বড় হেডারে ইউটিউব ভিডিও, ডাইরেক্ট ভিডিও লিংক অথবা ছবি স্লাইডার এখান থেকে নিয়ন্ত্রণ করুন।
+          </p>
+        </div>
+        {!isAdding && (
+          <button 
+            onClick={() => setIsAdding(true)}
+            className="bg-[#004b23] hover:bg-[#00381a] text-white px-5 py-3 rounded-2xl text-sm font-black flex items-center gap-2 shadow-lg shadow-emerald-900/10 active:scale-95 transition-all cursor-pointer"
+          >
+            <Plus className="w-5 h-5" />
+            <span>নতুন ভিডিও / ব্যানার যোগ করুন</span>
+          </button>
+        )}
+      </div>
+
+      {/* Toast Notification */}
+      <AnimatePresence>
+        {toast && (
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className={`fixed top-24 left-1/2 -translate-x-1/2 z-[100] px-6 py-3 rounded-2xl shadow-xl flex items-center gap-3 border ${
+              toast.isError ? "bg-rose-50 border-rose-200 text-rose-700" : "bg-emerald-50 border-emerald-200 text-emerald-700"
+            }`}
+          >
+            {toast.isError ? <AlertCircle className="w-5 h-5" /> : <CheckCircle2 className="w-5 h-5" />}
+            <span className="font-bold text-sm">{toast.text}</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Add/Edit Modal */}
+      <AnimatePresence>
+        {isAdding && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 backdrop-blur-xs z-[70] flex items-center justify-center p-4 overflow-y-auto"
+          >
+            <motion.div 
+              initial={{ scale: 0.95, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.95, y: 20 }}
+              className="bg-white w-full max-w-xl rounded-[32px] overflow-hidden shadow-2xl border border-gray-100 my-8"
+            >
+              <div className="p-6 border-b border-gray-100 flex items-center justify-between bg-gray-50/80">
+                <h3 className="text-lg font-black text-gray-900 italic">
+                  {editingId ? "ভিডিও/ব্যানার এডিট করুন" : "নতুন ভিডিও/ব্যানার যোগ করুন"}
+                </h3>
+                <button onClick={resetForm} className="p-2 hover:bg-gray-200 rounded-full transition-all">
+                  <X className="w-5 h-5 text-gray-400" />
+                </button>
+              </div>
+
+              <div className="p-6 space-y-6 max-h-[80vh] overflow-y-auto">
+                {/* Media Type Selector */}
+                <div className="space-y-2">
+                  <label className="text-xs font-black text-gray-700 uppercase tracking-wider block">
+                    মিডিয়া ফরম্যাট নির্বাচন করুন:
+                  </label>
+                  <div className="grid grid-cols-3 gap-2 p-1 bg-gray-100 rounded-2xl">
+                    <button
+                      type="button"
+                      onClick={() => setMediaType("youtube")}
+                      className={`py-3 rounded-xl text-xs font-black flex flex-col items-center gap-1 transition-all ${
+                        mediaType === "youtube"
+                          ? "bg-rose-600 text-white shadow-md"
+                          : "text-gray-600 hover:text-gray-900"
+                      }`}
+                    >
+                      <YoutubeIcon className="w-5 h-5 text-current" />
+                      <span>ইউটিউব ভিডিও</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setMediaType("video")}
+                      className={`py-3 rounded-xl text-xs font-black flex flex-col items-center gap-1 transition-all ${
+                        mediaType === "video"
+                          ? "bg-purple-600 text-white shadow-md"
+                          : "text-gray-600 hover:text-gray-900"
+                      }`}
+                    >
+                      <VideoIcon className="w-5 h-5" />
+                      <span>ডাইরেক্ট MP4 ভিডিও</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setMediaType("image")}
+                      className={`py-3 rounded-xl text-xs font-black flex flex-col items-center gap-1 transition-all ${
+                        mediaType === "image"
+                          ? "bg-[#004b23] text-white shadow-md"
+                          : "text-gray-600 hover:text-gray-900"
+                      }`}
+                    >
+                      <ImageIcon className="w-5 h-5" />
+                      <span>ছবি ব্যানার</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* YouTube Video URL Input */}
+                {mediaType === "youtube" && (
+                  <div className="space-y-3">
+                    <label className="text-xs font-black text-gray-700 uppercase tracking-wider block">
+                      ইউটিউব ভিডিও লিংক (YouTube Link):
+                    </label>
+                    <div className="relative">
+                      <LinkIcon className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                      <input
+                        type="url"
+                        placeholder="https://www.youtube.com/watch?v=... অথবা https://youtu.be/..."
+                        value={videoUrl}
+                        onChange={(e) => setVideoUrl(e.target.value)}
+                        className="w-full bg-gray-50 border border-gray-200 rounded-2xl py-3.5 pl-12 pr-4 text-sm font-semibold focus:ring-2 focus:ring-rose-500/20"
+                      />
+                    </div>
+                    {ytPreviewId ? (
+                      <div className="relative aspect-video rounded-2xl overflow-hidden border border-gray-200 shadow-sm bg-black">
+                        <iframe
+                          src={`https://www.youtube.com/embed/${ytPreviewId}?autoplay=0&controls=1`}
+                          title="Preview"
+                          className="w-full h-full border-0"
+                        />
+                      </div>
+                    ) : videoUrl.trim() ? (
+                      <p className="text-xs text-rose-500 font-bold">সঠিক ইউটিউব লিংক দিন</p>
+                    ) : null}
+                  </div>
+                )}
+
+                {/* Direct Video File Upload & URL Input */}
+                {mediaType === "video" && (
+                  <div className="space-y-4">
+                    <div className="p-3 bg-amber-50 border border-amber-200 rounded-2xl text-[11px] font-bold text-amber-900 leading-snug">
+                      💡 <strong>গুগল প্লে-কনসোল সর্বজনীন প্লেব্যাক টিপস:</strong> সকল কাস্টমারের মোবাইলে যেকোনো সময় লাইভ ভিডিও চালাতে <strong>ইউটিউব ভিডিও লিংক</strong> অথবা সরাসরি <strong>MP4 ইউআরএল (URL)</strong> ব্যবহার করুন।
+                    </div>
+
+                    <label className="text-xs font-black text-gray-700 uppercase tracking-wider block">
+                      ফোন/গ্যালারি থেকে সরাসরি ভিডিও আপলোড অথবা লিঙ্ক দিন:
+                    </label>
+
+                    {/* Gallery File Upload Area */}
+                    <label className="w-full aspect-[21/9] border-2 border-dashed border-purple-300 rounded-[28px] flex flex-col items-center justify-center bg-purple-50/50 hover:bg-purple-100/70 transition-all cursor-pointer relative overflow-hidden group">
+                      <input 
+                        type="file" 
+                        accept="video/*" 
+                        onChange={handleVideoFileUpload} 
+                        className="hidden" 
+                      />
+                      {videoUrl && videoUrl.startsWith("data:video") ? (
+                        <div className="relative w-full h-full bg-black">
+                          <video src={videoUrl} controls className="w-full h-full object-cover" />
+                          <div className="absolute top-2 right-2 bg-purple-900/80 text-white px-3 py-1 rounded-full text-[10px] font-bold shadow-md">
+                            ✓ গ্যালারি থেকে ভিডিও নির্বাচিত
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex flex-col items-center justify-center p-4 text-center">
+                          <div className="w-12 h-12 rounded-full bg-purple-100 text-purple-700 shadow-sm flex items-center justify-center mb-2">
+                            {isUploading ? <Loader2 className="w-6 h-6 animate-spin" /> : <Upload className="w-6 h-6" />}
+                          </div>
+                          <span className="text-xs font-black text-purple-900 uppercase tracking-wider">
+                            {isUploading ? "ভিডিও প্রসেস হচ্ছে..." : "📱 গ্যালারি থেকে ভিডিও ফাইল সিলেক্ট করুন"}
+                          </span>
+                          <span className="text-[10px] font-semibold text-purple-600/80 mt-1">
+                            MP4, WebM বা যেকোনো ভিডিও ফাইল সাপোর্ট করবে
+                          </span>
+                        </div>
+                      )}
+                    </label>
+
+                    <div className="flex items-center gap-2 my-1">
+                      <div className="h-[1px] bg-gray-200 flex-1"></div>
+                      <span className="text-[10px] font-black text-gray-400 uppercase">অথবা বাইরের ভিডিও ইউআরএল পেস্ট করুন</span>
+                      <div className="h-[1px] bg-gray-200 flex-1"></div>
+                    </div>
+
+                    <div className="relative">
+                      <VideoIcon className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                      <input
+                        type="url"
+                        placeholder="https://example.com/video.mp4"
+                        value={videoUrl.startsWith("data:video") ? "" : videoUrl}
+                        onChange={(e) => setVideoUrl(e.target.value)}
+                        className="w-full bg-gray-50 border border-gray-200 rounded-2xl py-3.5 pl-12 pr-4 text-sm font-semibold focus:ring-2 focus:ring-purple-500/20"
+                      />
+                    </div>
+
+                    {videoUrl.startsWith("http") && (
+                      <div className="relative aspect-video rounded-2xl overflow-hidden border border-gray-200 shadow-sm bg-black">
+                        <video src={videoUrl} controls className="w-full h-full object-cover" />
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Image Upload Input */}
+                {mediaType === "image" && (
+                  <div className="space-y-3">
+                    <label className="text-xs font-black text-gray-700 uppercase tracking-wider block">
+                      ব্যানার ফটো আপলোড করুন:
+                    </label>
+                    <label className="w-full aspect-[21/9] border-2 border-dashed border-gray-200 rounded-[28px] flex flex-col items-center justify-center bg-gray-50 hover:bg-gray-100/80 transition-all cursor-pointer relative overflow-hidden group">
+                      <input type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
+                      {image ? (
+                        <>
+                          <img src={image} alt="Preview" className="w-full h-full object-cover" />
+                          <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-all">
+                            <Upload className="w-8 h-8 text-white" />
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <div className="w-12 h-12 rounded-full bg-white shadow-sm flex items-center justify-center text-gray-400 mb-2">
+                            {isUploading ? <Loader2 className="w-6 h-6 animate-spin text-emerald-600" /> : <Upload className="w-6 h-6" />}
+                          </div>
+                          <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">গ্যালারি থেকে ব্যানার ছবি নিন</span>
+                        </>
+                      )}
+                    </label>
+                  </div>
+                )}
+
+                {/* Optional Title & Subtitle */}
+                <div className="space-y-4 pt-2 border-t border-gray-100">
+                  <div>
+                    <label className="text-xs font-bold text-gray-700 block mb-1">
+                      ভিডিও/ব্যানার টাইটেল (ঐচ্ছিক Overlay Text):
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="যেমন: আল মায়াদীন সফটওয়্যার প্রোমো"
+                      value={title}
+                      onChange={(e) => setTitle(e.target.value)}
+                      className="w-full bg-gray-50 border border-gray-200 rounded-xl py-3 px-4 text-sm font-medium"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-bold text-gray-700 block mb-1">
+                      সাব-টাইটেল / বর্ণনা (ঐচ্ছিক):
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="যেমন: আধুনিক প্রযুক্তিতে ইসলামি জীবনযাত্রা"
+                      value={subtitle}
+                      onChange={(e) => setSubtitle(e.target.value)}
+                      className="w-full bg-gray-50 border border-gray-200 rounded-xl py-3 px-4 text-sm font-medium"
+                    />
+                  </div>
+                </div>
+
+                <button 
+                  onClick={handleSave}
+                  disabled={saveLoading || isUploading}
+                  className="w-full bg-[#004b23] hover:bg-[#00381a] text-white py-4 rounded-2xl text-sm font-black flex items-center justify-center gap-2 shadow-lg shadow-emerald-900/10 active:scale-95 transition-all cursor-pointer disabled:opacity-50"
+                >
+                  {saveLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />}
+                  <span>{editingId ? "আপডেট করুন" : "সংরক্ষণ করুন"}</span>
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* List Display */}
+      {loading ? (
+        <div className="flex flex-col items-center justify-center py-20 gap-3">
+          <Loader2 className="w-10 h-10 text-emerald-600 animate-spin" />
+          <span className="text-sm font-bold text-gray-400">অপেক্ষা করুন...</span>
+        </div>
+      ) : banners.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-20 bg-white rounded-[40px] border border-gray-100 shadow-sm px-10 text-center">
+          <div className="w-20 h-20 rounded-full bg-emerald-50 flex items-center justify-center mb-4">
+            <VideoIcon className="w-10 h-10 text-emerald-600" />
+          </div>
+          <h3 className="text-lg font-black text-gray-900 italic uppercase">কোনো ভিডিও বা ব্যানার সেট করা নেই</h3>
+          <p className="text-sm text-gray-400 font-medium mt-1">হোম পেজের হেডার ভিডিও যোগ করতে উপরের বাটনে ক্লিক করুন</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {banners.map((banner) => {
+            const isYT = banner.type === "youtube" || (banner.videoUrl && (banner.videoUrl.includes("youtube") || banner.videoUrl.includes("youtu.be")));
+            const ytId = isYT ? getYouTubeVideoId(banner.videoUrl || "") : "";
+
+            return (
+              <motion.div 
+                layout
+                key={banner.id}
+                className="bg-white p-3 rounded-[32px] border border-gray-100 shadow-sm flex flex-col group overflow-hidden"
+              >
+                <div className="w-full aspect-[21/9] rounded-[24px] overflow-hidden relative bg-black flex items-center justify-center">
+                  {isYT && ytId ? (
+                    <img 
+                      src={`https://img.youtube.com/vi/${ytId}/hqdefault.jpg`} 
+                      alt="YouTube Thumbnail" 
+                      className="w-full h-full object-cover" 
+                    />
+                  ) : banner.type === "video" ? (
+                    <video src={banner.videoUrl} className="w-full h-full object-cover" />
+                  ) : (
+                    <img src={banner.image} alt="Banner" className="w-full h-full object-cover" />
+                  )}
+
+                  {/* Badge */}
+                  <div className="absolute top-3 left-3 px-3 py-1 rounded-full text-[10px] font-black tracking-wider uppercase bg-black/70 backdrop-blur-xs text-white border border-white/20 flex items-center gap-1.5">
+                    {isYT ? <YoutubeIcon className="w-3.5 h-3.5 text-rose-500" /> : banner.type === "video" ? <VideoIcon className="w-3.5 h-3.5 text-purple-400" /> : <ImageIcon className="w-3.5 h-3.5 text-emerald-400" />}
+                    <span>{isYT ? "ইউটিউব ভিডিও" : banner.type === "video" ? "MP4 ভিডিও" : "ছবি ব্যানার"}</span>
+                  </div>
+
+                </div>
+
+                {/* Card Title, Subtitle & Touch-friendly Edit/Delete Action Buttons */}
+                <div className="p-3 bg-gray-50/80 rounded-b-[24px] flex items-center justify-between gap-2 mt-2 border-t border-gray-100">
+                  <div className="flex-1 overflow-hidden">
+                    <h4 className="font-bold text-xs text-gray-900 truncate">
+                      {banner.title || (isYT ? "ইউটিউব ভিডিও" : banner.type === "video" ? "MP4 ভিডিও" : "ছবি ব্যানার")}
+                    </h4>
+                    {banner.subtitle && <p className="text-[11px] text-gray-500 truncate">{banner.subtitle}</p>}
+                  </div>
+
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button 
+                      type="button"
+                      onClick={() => startEdit(banner)}
+                      className="px-3 py-2 bg-white hover:bg-emerald-50 text-emerald-800 rounded-xl font-bold text-xs flex items-center gap-1.5 shadow-2xs border border-emerald-200 active:scale-95 transition-all cursor-pointer"
+                      title="এডিট করুন"
+                    >
+                      <Edit2 className="w-3.5 h-3.5" />
+                      <span>এডিট</span>
+                    </button>
+
+                    <button 
+                      type="button"
+                      onClick={() => handleDelete(banner.id)}
+                      className="px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-xl font-bold text-xs flex items-center gap-1.5 shadow-2xs border border-rose-200 active:scale-95 transition-all cursor-pointer"
+                      title="ডিলিট করুন"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>ডিলিট</span>
+                    </button>
+                  </div>
+                </div>
+              </motion.div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Custom Delete Confirmation Modal */}
+      <AnimatePresence>
+        {deleteConfirmId && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-[100] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white rounded-[32px] p-6 w-full max-w-sm shadow-2xl border border-rose-100 text-center space-y-4"
+            >
+              <div className="w-16 h-16 bg-rose-100 text-rose-600 rounded-full flex items-center justify-center mx-auto shadow-inner">
+                <Trash2 className="w-8 h-8" />
+              </div>
+
+              <div className="space-y-1">
+                <h3 className="text-lg font-black text-gray-900">ডিলিট করতে নিশ্চিত করুন</h3>
+                <p className="text-xs text-gray-500 font-medium">
+                  আপনি কি নিশ্চিত এই ভিডিও/ব্যানারটি তালিকা থেকে স্থায়ীভাবে ডিলিট করতে চান?
+                </p>
+              </div>
+
+              <div className="flex items-center gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setDeleteConfirmId(null)}
+                  disabled={deleteLoading}
+                  className="flex-1 py-3.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-2xl font-bold text-xs transition-all cursor-pointer"
+                >
+                  বাতিল
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => executeDelete(deleteConfirmId)}
+                  disabled={deleteLoading}
+                  className="flex-1 py-3.5 bg-rose-600 hover:bg-rose-700 text-white rounded-2xl font-black text-xs shadow-lg active:scale-95 transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  {deleteLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                  <span>হ্যাঁ, ডিলিট করুন</span>
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+};
