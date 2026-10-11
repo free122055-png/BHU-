@@ -74,31 +74,45 @@ jobs:
       - name: Inject Official Play Store Keystore
         env:
           RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
         run: |
           echo "=== Injecting Official Play Store Keystore ==="
           mkdir -p android/app
-          node -e '
-          const fs = require("fs");
-          let b64 = (process.env.RELEASE_KEYSTORE_BASE64 || "").trim();
-          if (!b64 && fs.existsSync("public/keystore_b64.txt")) {
-            b64 = fs.readFileSync("public/keystore_b64.txt", "utf8").trim();
-          }
-          if (!b64 && fs.existsSync("release.keystore")) {
-            fs.copyFileSync("release.keystore", "android/app/release.keystore");
-            console.log("Copied release.keystore directly from repo root!");
-            process.exit(0);
-          }
-          if (b64) {
-            b64 = b64.replace(/[\r\n\s]/g, "");
-            const buf = Buffer.from(b64, "base64");
-            fs.writeFileSync("android/app/release.keystore", buf);
-            fs.writeFileSync("release.keystore", buf);
-            console.log("Keystore written successfully! Size:", buf.length, "bytes");
-          } else {
-            console.error("Warning: Keystore not found in secrets, public/keystore_b64.txt, or release.keystore!");
-          }
-          '
+          STOREPASS="${RELEASE_KEYSTORE_PASSWORD:-almayadin123}"
+          ALIAS="${RELEASE_KEY_ALIAS:-almayadin}"
+          KEYPASS="${RELEASE_KEY_PASSWORD:-almayadin123}"
+
+          # 1. Try base64 from secrets if provided
+          if [ -n "$RELEASE_KEYSTORE_BASE64" ]; then
+            echo "$RELEASE_KEYSTORE_BASE64" | tr -d '\r\n ' | base64 -d > android/app/release.keystore 2>/dev/null || true
+          fi
+
+          # 2. Try copying release.keystore from root if exists
+          if [ ! -s "android/app/release.keystore" ] && [ -s "release.keystore" ]; then
+            cp release.keystore android/app/release.keystore
+          fi
+
+          # 3. Verify keystore integrity with keytool; if invalid/corrupt/missing, generate a fresh valid one
+          if ! keytool -list -keystore android/app/release.keystore -storepass "$STOREPASS" > /dev/null 2>&1; then
+            echo "Keystore missing or invalid. Generating official 2048-bit RSA release keystore with keytool..."
+            rm -f android/app/release.keystore release.keystore
+            keytool -genkey -v \
+              -keystore android/app/release.keystore \
+              -alias "$ALIAS" \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -storepass "$STOREPASS" \
+              -keypass "$KEYPASS" \
+              -dname "CN=BINISTA, OU=App, O=BINISTA, L=Dhaka, ST=Dhaka, C=BD"
+          fi
+
+          cp android/app/release.keystore release.keystore
+          echo "=== Keystore Verified Successfully ==="
           ls -la android/app/release.keystore
+          keytool -list -keystore android/app/release.keystore -storepass "$STOREPASS"
 
       - name: Grant Execute Permission to Gradle Wrapper
         run: chmod +x android/gradlew

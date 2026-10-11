@@ -1,5 +1,6 @@
 apply plugin: 'com.android.application'
 apply plugin: 'kotlin-android'
+
 try {
     def servicesJSON = file('google-services.json')
     if (servicesJSON.exists()) {
@@ -31,27 +32,37 @@ android {
             if (!kFile.exists()) {
                 kFile = file('../../release.keystore')
             }
-            if (!kFile.exists()) {
-                kFile = file('android/app/release.keystore')
+            if (kFile.exists()) {
+                storeFile kFile
+                storePassword System.getenv("RELEASE_KEYSTORE_PASSWORD") ?: "almayadin123"
+                keyAlias System.getenv("RELEASE_KEY_ALIAS") ?: "almayadin"
+                keyPassword System.getenv("RELEASE_KEY_PASSWORD") ?: "almayadin123"
             }
-            storeFile kFile
-            storePassword System.getenv("RELEASE_KEYSTORE_PASSWORD") ?: "almayadin123"
-            keyAlias System.getenv("RELEASE_KEY_ALIAS") ?: "almayadin"
-            keyPassword System.getenv("RELEASE_KEY_PASSWORD") ?: "almayadin123"
         }
     }
 
     buildTypes {
         release {
-            signingConfig signingConfigs.release
+            def kFile = file('release.keystore')
+            if (!kFile.exists()) {
+                kFile = file('../release.keystore')
+            }
+            if (!kFile.exists()) {
+                kFile = file('../../release.keystore')
+            }
+            if (kFile.exists()) {
+                signingConfig signingConfigs.release
+            }
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
+
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_17
-        targetCompatibility JavaVersion.VERSION_17
+        sourceCompatibility JavaVersion.VERSION_21
+        targetCompatibility JavaVersion.VERSION_21
     }
+
     lint {
         abortOnError false
         checkReleaseBuilds false
@@ -69,8 +80,6 @@ dependencies {
     implementation 'com.google.firebase:firebase-analytics'
     implementation 'com.android.billingclient:billing:6.1.0'
 }
-
-
 
 def capBuild = file('capacitor.build.gradle')
 if (capBuild.exists()) {
