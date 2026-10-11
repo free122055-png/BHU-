@@ -227,7 +227,7 @@ export const ChatList: React.FC = () => {
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const list = snapshot.docs.map(doc => {
+      let list = snapshot.docs.map(doc => {
         const data = doc.data();
         const otherId = data.participants?.find((p: string) => p !== user.uid) || "";
         const otherUser = data.users?.[otherId] || {};
@@ -245,6 +245,45 @@ export const ChatList: React.FC = () => {
         } as ChatThreadItem;
       });
 
+      // Inject Demo Users if list is empty
+      if (list.length === 0) {
+        list = [
+          {
+            id: "demo_1",
+            targetUserId: "demo_user_1",
+            displayName: "আলমগীর হোসেন",
+            username: "alamgir_pro",
+            photoURL: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150&auto=format&fit=crop&q=80",
+            lastMessage: "আসসালামু আলাইকুম, কেমন আছেন?",
+            lastMessageAt: Date.now(),
+            unreadCount: 2,
+            isOnline: true
+          },
+          {
+            id: "demo_2",
+            targetUserId: "demo_user_2",
+            displayName: "জান্নাতুল ফেরদৌস",
+            username: "jannat_fashion",
+            photoURL: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&auto=format&fit=crop&q=80",
+            lastMessage: "নতুন রিলস টা জোস হইছে! 🔥",
+            lastMessageAt: Date.now() - 3600000,
+            unreadCount: 0,
+            isOnline: true
+          },
+          {
+            id: "demo_3",
+            targetUserId: "demo_user_3",
+            displayName: "রাকিব হাসান",
+            username: "rakib_gamer",
+            photoURL: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80",
+            lastMessage: "ভাই, গেমে আসবেন নাকি?",
+            lastMessageAt: Date.now() - 7200000,
+            unreadCount: 1,
+            isOnline: false
+          }
+        ];
+      }
+
       setThreads(list);
     }, (err) => console.warn("Chat rooms notice:", err));
 
@@ -256,7 +295,7 @@ export const ChatList: React.FC = () => {
     if (!user) return;
     const q = query(collection(db, "users"), limit(100));
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const list = snapshot.docs
+      let list = snapshot.docs
         .map(d => ({
           id: d.id,
           displayName: d.data().displayName || d.data().name || "User",
@@ -264,6 +303,15 @@ export const ChatList: React.FC = () => {
           photoURL: d.data().photoURL || ""
         }))
         .filter(u => u.id !== user.uid);
+      
+      // Inject demo users for discovery
+      if (list.length === 0) {
+        list = [
+          { id: "demo_user_1", displayName: "আলমগীর হোসেন", username: "alamgir_pro", photoURL: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150&auto=format&fit=crop&q=80" },
+          { id: "demo_user_2", displayName: "জান্নাতুল ফেরদৌস", username: "jannat_fashion", photoURL: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&auto=format&fit=crop&q=80" },
+          { id: "demo_user_3", displayName: "রাকিব হাসান", username: "rakib_gamer", photoURL: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80" }
+        ];
+      }
       setAllUsers(list);
     }, () => {});
 

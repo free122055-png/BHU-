@@ -1,310 +1,220 @@
-import React from "react";
-import { useNavigate } from "react-router-dom";
-import { 
-  X, 
-  Home, 
-  User, 
-  Settings, 
-  Bell, 
-  Shield, 
-  Lock, 
-  HelpCircle, 
-  Info, 
-  Activity, 
-  Bookmark, 
-  Video, 
-  MessageSquare, 
-  LogOut, 
-  LogIn, 
+import React, { useEffect } from 'react';
+import {
+  X,
+  Video,
+  User,
+  Heart,
+  Settings,
+  Moon,
+  HelpCircle,
+  LogOut,
   ChevronRight,
-  Users
-} from "lucide-react";
-import { motion, AnimatePresence } from "motion/react";
-import { useAuth } from "../context/AuthContext";
-import { useNotificationContext } from "../context/NotificationContext";
-import { auth } from "../lib/firebase";
-import { signOut } from "firebase/auth";
+  LogIn,
+  ShieldCheck,
+  Shield,
+} from 'lucide-react';
+import { UserData } from '../services/authService';
+import { registerBackHandler } from '../services/backNavigationService';
+import { UserAvatar } from './UserAvatar';
 
 interface MenuDrawerProps {
   isOpen: boolean;
   onClose: () => void;
+  onSelectTrending: () => void;
+  onSelectProfile: () => void;
+  onSelectSaved: () => void;
+  onSelectSettings: () => void;
+  onToggleDarkMode: () => void;
+  onSelectHelp: () => void;
+  onOpenBlueBadge: () => void;
+  onSignOut: () => void;
+  onOpenAuth: () => void;
+  currentUser: UserData | null;
 }
 
-export const MenuDrawer: React.FC<MenuDrawerProps> = ({ isOpen, onClose }) => {
-  const { user, profile } = useAuth();
-  const { unreadCount } = useNotificationContext();
-  const navigate = useNavigate();
+export const MenuDrawer: React.FC<MenuDrawerProps> = ({
+  isOpen,
+  onClose,
+  onSelectTrending,
+  onSelectProfile,
+  onSelectSaved,
+  onSelectSettings,
+  onToggleDarkMode,
+  onSelectHelp,
+  onOpenBlueBadge,
+  onSignOut,
+  onOpenAuth,
+  currentUser,
+}) => {
+  useEffect(() => {
+    if (!isOpen) return;
 
-  const handleNavigate = (path: string) => {
-    onClose();
-    navigate(path);
-  };
-
-  const handleLogout = async () => {
-    try {
-      localStorage.removeItem("admin_secret_unlocked");
-      await signOut(auth);
+    const unregister = registerBackHandler(() => {
       onClose();
-      navigate("/");
-    } catch (err) {
-      console.error(err);
-    }
-  };
+      return true;
+    });
 
-  const displayName = profile?.displayName || user?.displayName || "সম্মানিত সদস্য";
-  const displayUsername = profile?.username ? `@${profile.username}` : user?.email ? user.email.split("@")[0] : "@user";
-  const displayPhoto = profile?.photoURL || user?.photoURL || "";
+    return () => unregister();
+  }, [isOpen, onClose]);
+
+  if (!isOpen) return null;
+
+  const menuItems = [
+    { icon: Video, label: 'Trending Videos', count: '6', action: onSelectTrending },
+    { icon: User, label: 'My Profile', badge: 'NEW', action: onSelectProfile },
+    { icon: ShieldCheck, label: 'Get Blue Badge', badge: 'VERIFIED', action: onOpenBlueBadge },
+    { icon: Heart, label: 'Saved Videos', count: '12', action: onSelectSaved },
+    { icon: Settings, label: 'Settings & Privacy', action: onSelectSettings },
+    { icon: Moon, label: 'Dark Mode', action: onToggleDarkMode },
+    { icon: HelpCircle, label: 'Help & Support', action: onSelectHelp },
+  ];
 
   return (
-    <AnimatePresence>
-      {isOpen && (
-        <>
-          {/* Background Dimmed Overlay */}
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.18, ease: "easeOut" }}
-            onClick={onClose}
-            style={{ touchAction: "manipulation" }}
-            className="fixed inset-0 bg-black/75 z-[999] backdrop-blur-xs"
-          />
-
-          {/* Slide-out Side Menu Drawer - Modern BINISTA Style */}
-          <motion.div
-            initial={{ x: "-100%" }}
-            animate={{ x: 0 }}
-            exit={{ x: "-100%" }}
-            transition={{ type: "tween", duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
-            style={{ touchAction: "manipulation" }}
-            className="fixed top-0 left-0 bottom-0 w-[85%] max-w-[340px] bg-[#0d1117] text-white z-[1000] shadow-2xl flex flex-col overflow-hidden"
-          >
-            {/* Header / Brand Profile Section */}
-            <div className="pt-6 pb-4 px-5 border-b border-gray-800/80 bg-[#0d1117] flex items-center justify-between shrink-0">
-              <div className="flex items-center gap-3">
-                <div className="w-11 h-11 rounded-2xl bg-gray-800/80 border border-gray-700/60 overflow-hidden flex items-center justify-center shrink-0">
-                  {displayPhoto ? (
-                    <img src={displayPhoto} alt={displayName} className="w-full h-full object-cover" />
-                  ) : (
-                    <User className="w-6 h-6 text-gray-300 stroke-[1.8]" />
-                  )}
-                </div>
-                <div className="min-w-0">
-                  <div className="text-base font-bold text-white leading-tight truncate">
-                    {displayName}
-                  </div>
-                  <div className="text-xs text-gray-400 font-medium truncate mt-0.5">
-                    {displayUsername}
-                  </div>
-                </div>
-              </div>
-
-              {/* Close Button */}
-              <button
-                onClick={onClose}
-                className="w-9 h-9 rounded-full bg-gray-800/50 hover:bg-gray-800 text-gray-300 flex items-center justify-center transition-colors active:scale-95 border border-gray-700/40"
-                aria-label="Close Menu"
+    <div className="fixed inset-0 z-50 bg-white text-slate-900 flex flex-col justify-between p-5 sm:p-6 overflow-y-auto no-scrollbar animate-in fade-in duration-200 select-none">
+      <div className="flex flex-col gap-6 max-w-md mx-auto w-full">
+        {/* Top Header with BINISTA Logo and Close X */}
+        <div className="flex items-center justify-between pb-4 border-b border-gray-100">
+          <div className="flex items-center gap-2.5">
+            {/* Pink/Red Play Icon Badge */}
+            <div className="w-8 h-8 rounded-2xl bg-[#FF2D55] flex items-center justify-center text-white shadow-sm">
+              <svg
+                className="w-4 h-4 text-white fill-white ml-0.5"
+                viewBox="0 0 24 24"
               >
-                <X className="w-5 h-5 stroke-[1.8]" />
-              </button>
+                <path d="M8 5v14l11-7z" />
+              </svg>
+            </div>
+            <span className="font-extrabold text-xl tracking-tight text-slate-900 font-sans">
+              BINISTA
+            </span>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-1.5 rounded-full text-slate-800 hover:text-black hover:bg-gray-100 transition-colors cursor-pointer"
+            aria-label="Close menu"
+          >
+            <X className="w-6 h-6 stroke-[2.5]" />
+          </button>
+        </div>
+
+        {/* User Profile Card */}
+        {currentUser ? (
+          <div
+            onClick={() => {
+              onClose();
+              onSelectProfile();
+            }}
+            className="flex items-center justify-between p-4 rounded-2xl bg-[#F4F6FC] hover:bg-[#EEF2FA] transition-colors cursor-pointer group shadow-xs"
+          >
+            <div className="flex items-center gap-3.5">
+              <UserAvatar
+                src={currentUser.avatarUrl}
+                alt={currentUser.name}
+                className="w-12 h-12 rounded-full object-cover shadow-xs border border-gray-200"
+              />
+              <div className="flex flex-col">
+                <span className="font-extrabold text-base text-slate-900 leading-tight">
+                  {currentUser.name || 'BINISTA User'}
+                </span>
+                <span className="text-xs text-[#0066FF] font-semibold mt-0.5">
+                  @{currentUser.username || 'user'}
+                </span>
+              </div>
             </div>
 
-            {/* Scrollable Menu Items */}
-            <div className="flex-1 overflow-y-auto py-2 divide-y divide-gray-800/50 text-sm">
-              {/* Quick Navigation Group */}
-              <div className="py-2 px-2 space-y-0.5">
-                <button
-                  onClick={() => handleNavigate("/")}
-                  className="w-full py-3 px-3.5 rounded-xl flex items-center justify-between text-left hover:bg-gray-800/40 transition-colors group"
-                >
-                  <div className="flex items-center gap-3.5">
-                    <Home className="w-5 h-5 text-gray-300 stroke-[1.8]" />
-                    <span className="font-semibold text-white">হোম (Feed)</span>
-                  </div>
-                  <ChevronRight className="w-4 h-4 text-gray-500 group-hover:translate-x-0.5 transition-transform" />
-                </button>
-
-                <button
-                  onClick={() => handleNavigate("/account")}
-                  className="w-full py-3 px-3.5 rounded-xl flex items-center justify-between text-left hover:bg-gray-800/40 transition-colors group"
-                >
-                  <div className="flex items-center gap-3.5">
-                    <User className="w-5 h-5 text-gray-300 stroke-[1.8]" />
-                    <span className="font-semibold text-white">আমার প্রোফাইল</span>
-                  </div>
-                  <ChevronRight className="w-4 h-4 text-gray-500 group-hover:translate-x-0.5 transition-transform" />
-                </button>
-
-                <button
-                  onClick={() => handleNavigate("/chat")}
-                  className="w-full py-3 px-3.5 rounded-xl flex items-center justify-between text-left hover:bg-gray-800/40 transition-colors group"
-                >
-                  <div className="flex items-center gap-3.5">
-                    <MessageSquare className="w-5 h-5 text-gray-300 stroke-[1.8]" />
-                    <span className="font-semibold text-white">মেসেজ ও চ্যাট</span>
-                  </div>
-                  <ChevronRight className="w-4 h-4 text-gray-500 group-hover:translate-x-0.5 transition-transform" />
-                </button>
-
-                <button
-                  onClick={() => handleNavigate("/islamic-tilawat")}
-                  className="w-full py-3 px-3.5 rounded-xl flex items-center justify-between text-left hover:bg-gray-800/40 transition-colors group"
-                >
-                  <div className="flex items-center gap-3.5">
-                    <Video className="w-5 h-5 text-gray-300 stroke-[1.8]" />
-                    <span className="font-semibold text-white">রিলস / ভিডিও</span>
-                  </div>
-                  <ChevronRight className="w-4 h-4 text-gray-500 group-hover:translate-x-0.5 transition-transform" />
-                </button>
+            <ChevronRight className="w-5 h-5 text-gray-400 group-hover:text-black transition-colors" />
+          </div>
+        ) : (
+          <div
+            onClick={() => {
+              onClose();
+              onOpenAuth();
+            }}
+            className="flex items-center justify-between p-4 rounded-2xl bg-[#131b26] text-white hover:bg-slate-800 transition-colors cursor-pointer group shadow-md"
+          >
+            <div className="flex items-center gap-3.5">
+              <div className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center">
+                <LogIn className="w-5 h-5 text-white" />
               </div>
+              <div className="flex flex-col">
+                <span className="font-extrabold text-sm text-white leading-tight">
+                  Log In / Create Account
+                </span>
+                <span className="text-[11px] text-gray-300 font-medium mt-0.5">
+                  Access your profile & custom reels
+                </span>
+              </div>
+            </div>
 
-              {/* 8 Standard BINISTA Profile Sections */}
-              <div className="py-2 px-2 space-y-0.5">
-                <div className="px-3 py-1 text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
-                  BINISTA SECTIONS
+            <ChevronRight className="w-5 h-5 text-white/70 group-hover:text-white transition-colors" />
+          </div>
+        )}
+
+        {/* Menu Items List - Real Live Actions */}
+        <div className="flex flex-col gap-2 pt-1">
+          {menuItems.map((item, idx) => {
+            const Icon = item.icon;
+            return (
+              <button
+                key={idx}
+                onClick={() => {
+                  onClose();
+                  item.action();
+                }}
+                className="w-full flex items-center justify-between p-3.5 rounded-2xl bg-slate-50/80 hover:bg-slate-100 active:bg-slate-200/80 transition-colors text-slate-900 group cursor-pointer text-left border border-slate-100/80"
+              >
+                <div className="flex items-center gap-3.5">
+                  <Icon className="w-5 h-5 text-slate-900 stroke-[2.2] group-hover:scale-105 transition-transform" />
+                  <span className="font-extrabold text-sm text-slate-900 font-sans tracking-tight">
+                    {item.label}
+                  </span>
                 </div>
 
-                {/* 1. Settings & Activity */}
-                <button
-                  onClick={() => handleNavigate("/account-settings")}
-                  className="w-full py-3 px-3.5 rounded-xl flex items-center justify-between text-left hover:bg-gray-800/40 transition-colors group"
-                >
-                  <div className="flex items-center gap-3.5">
-                    <Settings className="w-5 h-5 text-gray-300 stroke-[1.8]" />
-                    <span className="font-medium text-gray-100">1. Settings & Activity</span>
-                  </div>
-                  <ChevronRight className="w-4 h-4 text-gray-500 group-hover:translate-x-0.5 transition-transform" />
-                </button>
-
-                {/* 2. Your Activity */}
-                <button
-                  onClick={() => handleNavigate("/account")}
-                  className="w-full py-3 px-3.5 rounded-xl flex items-center justify-between text-left hover:bg-gray-800/40 transition-colors group"
-                >
-                  <div className="flex items-center gap-3.5">
-                    <Activity className="w-5 h-5 text-gray-300 stroke-[1.8]" />
-                    <span className="font-medium text-gray-100">2. Your Activity</span>
-                  </div>
-                  <ChevronRight className="w-4 h-4 text-gray-500 group-hover:translate-x-0.5 transition-transform" />
-                </button>
-
-                {/* 3. Notifications */}
-                <button
-                  onClick={() => handleNavigate("/notifications")}
-                  className="w-full py-3 px-3.5 rounded-xl flex items-center justify-between text-left hover:bg-gray-800/40 transition-colors group"
-                >
-                  <div className="flex items-center gap-3.5">
-                    <Bell className="w-5 h-5 text-gray-300 stroke-[1.8]" />
-                    <span className="font-medium text-gray-100">3. Notifications</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {unreadCount > 0 && (
-                      <span className="bg-gray-800 text-gray-200 border border-gray-700 text-[10px] font-bold px-2 py-0.5 rounded-full">
-                        {unreadCount}
-                      </span>
-                    )}
-                    <ChevronRight className="w-4 h-4 text-gray-500 group-hover:translate-x-0.5 transition-transform" />
-                  </div>
-                </button>
-
-                {/* 4. Privacy */}
-                <button
-                  onClick={() => handleNavigate("/privacy")}
-                  className="w-full py-3 px-3.5 rounded-xl flex items-center justify-between text-left hover:bg-gray-800/40 transition-colors group"
-                >
-                  <div className="flex items-center gap-3.5">
-                    <Shield className="w-5 h-5 text-gray-300 stroke-[1.8]" />
-                    <span className="font-medium text-gray-100">4. Privacy</span>
-                  </div>
-                  <ChevronRight className="w-4 h-4 text-gray-500 group-hover:translate-x-0.5 transition-transform" />
-                </button>
-
-                {/* 5. Security */}
-                <button
-                  onClick={() => handleNavigate("/security")}
-                  className="w-full py-3 px-3.5 rounded-xl flex items-center justify-between text-left hover:bg-gray-800/40 transition-colors group"
-                >
-                  <div className="flex items-center gap-3.5">
-                    <Lock className="w-5 h-5 text-gray-300 stroke-[1.8]" />
-                    <span className="font-medium text-gray-100">5. Security</span>
-                  </div>
-                  <ChevronRight className="w-4 h-4 text-gray-500 group-hover:translate-x-0.5 transition-transform" />
-                </button>
-
-                {/* 6. Account */}
-                <button
-                  onClick={() => handleNavigate("/account-settings")}
-                  className="w-full py-3 px-3.5 rounded-xl flex items-center justify-between text-left hover:bg-gray-800/40 transition-colors group"
-                >
-                  <div className="flex items-center gap-3.5">
-                    <User className="w-5 h-5 text-gray-300 stroke-[1.8]" />
-                    <span className="font-medium text-gray-100">6. Account</span>
-                  </div>
-                  <ChevronRight className="w-4 h-4 text-gray-500 group-hover:translate-x-0.5 transition-transform" />
-                </button>
-
-                {/* 7. Help & Support */}
-                <button
-                  onClick={() => handleNavigate("/contact")}
-                  className="w-full py-3 px-3.5 rounded-xl flex items-center justify-between text-left hover:bg-gray-800/40 transition-colors group"
-                >
-                  <div className="flex items-center gap-3.5">
-                    <HelpCircle className="w-5 h-5 text-gray-300 stroke-[1.8]" />
-                    <span className="font-medium text-gray-100">7. Help & Support</span>
-                  </div>
-                  <ChevronRight className="w-4 h-4 text-gray-500 group-hover:translate-x-0.5 transition-transform" />
-                </button>
-
-                {/* 8. About BINISTA */}
-                <button
-                  onClick={() => handleNavigate("/terms")}
-                  className="w-full py-3 px-3.5 rounded-xl flex items-center justify-between text-left hover:bg-gray-800/40 transition-colors group"
-                >
-                  <div className="flex items-center gap-3.5">
-                    <Info className="w-5 h-5 text-gray-300 stroke-[1.8]" />
-                    <span className="font-medium text-gray-100">8. About BINISTA</span>
-                  </div>
-                  <ChevronRight className="w-4 h-4 text-gray-500 group-hover:translate-x-0.5 transition-transform" />
-                </button>
-              </div>
-
-              {/* Account Logout / Login */}
-              <div className="py-3 px-2">
-                {user ? (
-                  <button
-                    onClick={handleLogout}
-                    className="w-full py-3 px-3.5 rounded-xl flex items-center justify-between text-left hover:bg-red-950/30 text-red-400 transition-colors group"
-                  >
-                    <div className="flex items-center gap-3.5">
-                      <LogOut className="w-5 h-5 text-red-400 stroke-[1.8]" />
-                      <span className="font-semibold">লগআউট করুন</span>
-                    </div>
-                    <ChevronRight className="w-4 h-4 text-red-500/50 group-hover:translate-x-0.5 transition-transform" />
-                  </button>
-                ) : (
-                  <button
-                    onClick={() => handleNavigate("/login")}
-                    className="w-full py-3 px-3.5 rounded-xl flex items-center justify-between text-left hover:bg-emerald-950/30 text-emerald-400 transition-colors group"
-                  >
-                    <div className="flex items-center gap-3.5">
-                      <LogIn className="w-5 h-5 text-emerald-400 stroke-[1.8]" />
-                      <span className="font-semibold">লগইন / সাইন আপ</span>
-                    </div>
-                    <ChevronRight className="w-4 h-4 text-emerald-500/50 group-hover:translate-x-0.5 transition-transform" />
-                  </button>
+                {item.count && (
+                  <span className="text-xs bg-[#E8EFFB] text-slate-700 font-extrabold px-2.5 py-0.5 rounded-full min-w-[22px] text-center">
+                    {item.count}
+                  </span>
                 )}
-              </div>
-            </div>
 
-            {/* Footer Info */}
-            <div className="p-4 border-t border-gray-800/60 bg-[#0d1117] text-center text-xs text-gray-500 font-medium">
-              BINISTA • Live Community & Commerce
-            </div>
-          </motion.div>
-        </>
-      )}
-    </AnimatePresence>
+                {item.badge && (
+                  <span className="text-[10px] bg-[#FF2D55] text-white font-extrabold px-2 py-0.5 rounded-full uppercase tracking-wider">
+                    {item.badge}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Footer Sign Out / Log In Item */}
+      <div className="pt-4 border-t border-gray-100 max-w-md mx-auto w-full mt-auto">
+        {currentUser ? (
+          <button
+            onClick={() => {
+              onClose();
+              onSignOut();
+            }}
+            className="w-full flex items-center gap-3.5 p-3.5 rounded-2xl bg-red-50/60 hover:bg-red-50 text-slate-900 hover:text-red-600 transition-colors text-left group cursor-pointer border border-red-100/60"
+          >
+            <LogOut className="w-5 h-5 text-slate-900 stroke-[2.2] group-hover:text-red-600 transition-colors" />
+            <span className="font-extrabold text-sm text-slate-900 group-hover:text-red-600 transition-colors font-sans">
+              Sign Out (@{currentUser.username})
+            </span>
+          </button>
+        ) : (
+          <button
+            onClick={() => {
+              onClose();
+              onOpenAuth();
+            }}
+            className="w-full flex items-center gap-3.5 p-3.5 rounded-2xl bg-blue-50/60 hover:bg-blue-50 text-blue-700 transition-colors text-left group cursor-pointer border border-blue-100/60 font-extrabold text-sm"
+          >
+            <LogIn className="w-5 h-5 text-blue-600" />
+            <span>Sign In to BINISTA Account</span>
+          </button>
+        )}
+      </div>
+    </div>
   );
 };
-
-export default MenuDrawer;

@@ -32,7 +32,44 @@ jobs:
         run: npm run build
 
       - name: Sync Capacitor Android
-        run: npx cap sync android
+        run: |
+          npx --yes @capacitor/cli sync android || node ./node_modules/@capacitor/cli/bin/capacitor sync android
+
+      - name: Ensure google-services.json exists
+        run: |
+          mkdir -p android/app
+          node -e '
+          const fs = require("fs");
+          const target = "android/app/google-services.json";
+          if (!fs.existsSync(target) || fs.readFileSync(target, "utf8").trim().length === 0) {
+            console.log("Writing google-services.json configuration...");
+            const gs = {
+              "project_info": {
+                "project_number": "812848601619",
+                "project_id": "gen-lang-client-0777100836",
+                "storage_bucket": "gen-lang-client-0777100836.firebasestorage.app"
+              },
+              "client": [
+                {
+                  "client_info": {
+                    "mobilesdk_app_id": "1:812848601619:android:bc5cc92bce1ab8e0a23de6",
+                    "android_client_info": {
+                      "package_name": "com.dailyinternetoffer.bd"
+                    }
+                  },
+                  "oauth_client": [],
+                  "api_key": [{ "current_key": "AIzaSyDc60ABMfvgtjXxRXrNFDTsQcYFM9YiwnU" }],
+                  "services": {}
+                }
+              ],
+              "configuration_version": "1"
+            };
+            fs.writeFileSync(target, JSON.stringify(gs, null, 2));
+          } else {
+            console.log("google-services.json already present.");
+          }
+          '
+          ls -la android/app/google-services.json
 
       - name: Inject Official Play Store Keystore
         env:
@@ -40,27 +77,37 @@ jobs:
         run: |
           echo "=== Injecting Official Play Store Keystore ==="
           mkdir -p android/app
-          node -e "
-          const fs = require('fs');
-          let b64 = process.env.RELEASE_KEYSTORE_BASE64;
-          if (!b64 && fs.existsSync('public/keystore_b64.txt')) {
-            b64 = fs.readFileSync('public/keystore_b64.txt', 'utf8').trim();
+          node -e '
+          const fs = require("fs");
+          let b64 = (process.env.RELEASE_KEYSTORE_BASE64 || "").trim();
+          if (!b64 && fs.existsSync("public/keystore_b64.txt")) {
+            b64 = fs.readFileSync("public/keystore_b64.txt", "utf8").trim();
           }
-          if (!b64) {
-            console.error('Error: Keystore base64 not found in secrets or file!');
-            process.exit(1);
+          if (!b64 && fs.existsSync("release.keystore")) {
+            fs.copyFileSync("release.keystore", "android/app/release.keystore");
+            console.log("Copied release.keystore directly from repo root!");
+            process.exit(0);
           }
-          const buf = Buffer.from(b64, 'base64');
-          fs.writeFileSync('android/app/release.keystore', buf);
-          fs.writeFileSync('release.keystore', buf);
-          console.log('Keystore written successfully! Size:', buf.length, 'bytes');
-          "
+          if (b64) {
+            b64 = b64.replace(/[\r\n\s]/g, "");
+            const buf = Buffer.from(b64, "base64");
+            fs.writeFileSync("android/app/release.keystore", buf);
+            fs.writeFileSync("release.keystore", buf);
+            console.log("Keystore written successfully! Size:", buf.length, "bytes");
+          } else {
+            console.error("Warning: Keystore not found in secrets, public/keystore_b64.txt, or release.keystore!");
+          }
+          '
           ls -la android/app/release.keystore
 
       - name: Grant Execute Permission to Gradle Wrapper
         run: chmod +x android/gradlew
 
       - name: Build Android App Bundle (AAB) and APK
+        env:
+          RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
         run: |
           cd android
           ./gradlew bundleRelease assembleRelease --no-daemon --stacktrace

@@ -1,123 +1,60 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools">
+    package="com.dailyinternetoffer.bd">
+
+    <!-- Android Official Push Notification & Google Play Billing Permissions -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.front" android:required="false" />
+    <uses-permission android:name="com.android.vending.BILLING" />
 
     <application
         android:allowBackup="true"
-        android:usesCleartextTraffic="true"
-        android:hardwareAccelerated="true"
         android:icon="@mipmap/ic_launcher"
-        android:label="@string/app_name"
+        android:label="BINISTA"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
 
         <activity
-            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation|density"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode"
             android:name=".MainActivity"
-            android:label="@string/title_activity_main"
-            android:theme="@style/AppTheme.NoActionBarLaunch"
+            android:label="BINISTA"
+            android:theme="@style/AppTheme.NoActionBar"
             android:launchMode="singleTask"
-            android:hardwareAccelerated="true"
             android:exported="true">
 
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-
-            <!-- Deep Link: Custom Scheme (binista://post/458) -->
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="binista" android:host="post" />
-            </intent-filter>
-
-            <!-- Deep Link: Custom Scheme Generic (binista://*) -->
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="binista" />
-            </intent-filter>
-
-            <!-- Deep Link: Web URL (https://binista.app/post/458) -->
-            <intent-filter android:autoVerify="true">
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="https" android:host="binista.app" />
-                <data android:scheme="http" android:host="binista.app" />
-            </intent-filter>
-
         </activity>
 
-        <provider
-            android:name="androidx.core.content.FileProvider"
-            android:authorities="${applicationId}.fileprovider"
-            android:exported="false"
-            android:grantUriPermissions="true">
-            <meta-data
-                android:name="android.support.FILE_PROVIDER_PATHS"
-                android:resource="@xml/file_paths"></meta-data>
-        </provider>
+        <!-- OneSignal App ID Metadata -->
+        <meta-data
+            android:name="com.onesignal.AppId"
+            android:value="d28392ee-2a0f-4f62-ba65-03fb3e0915ab" />
+        <meta-data
+            android:name="com.onesignal.NotificationAccentColor.DEFAULT"
+            android:value="FF0066FF" />
+
+
+        <!-- Firebase Default Notification Channel & Custom Styling -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="binista_notifications" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_color"
+            android:resource="@color/colorPrimary" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:value="@mipmap/ic_launcher" />
+
     </application>
-
-    <!-- Permissions -->
-
-    <!-- Internet & Network -->
-    <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-
-    <!-- নোটিফিকেশন পারমিশন (Notifications) -->
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <uses-permission android:name="android.permission.VIBRATE" />
-    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-
-    <!-- ক্যামেরা পারমিশন (Camera & Media Uploads) -->
-    <uses-permission android:name="android.permission.CAMERA" />
-    <uses-feature android:name="android.hardware.camera" android:required="false" />
-    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
-
-    <!-- স্টোরেজ ও মিডিয়া পারমিশন (Profile Image Uploads - Legacy Android <= 12) -->
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
-
-    <!-- Explicitly remove Location permissions to eliminate Play Console Sensitive App Permission error -->
-    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" tools:node="remove" />
-    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" tools:node="remove" />
-    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" tools:node="remove" />
-
-    <!-- Explicitly remove restricted/sensitive permissions merged from third-party libraries -->
-    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" tools:node="remove" />
-    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" tools:node="remove" />
-    <uses-permission android:name="android.permission.READ_PHONE_STATE" tools:node="remove" />
-    <uses-permission android:name="android.permission.USE_EXACT_ALARM" tools:node="remove" />
-    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" tools:node="remove" />
-    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" tools:node="remove" />
-    <uses-permission android:name="android.permission.RECORD_AUDIO" tools:node="remove" />
-
-    <!-- Explicitly remove all Foreground Service permissions to eliminate Play Console FGS errors -->
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" tools:node="remove" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" tools:node="remove" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" tools:node="remove" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" tools:node="remove" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" tools:node="remove" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" tools:node="remove" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" tools:node="remove" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" tools:node="remove" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_PHONE_CALL" tools:node="remove" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_HEALTH" tools:node="remove" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_REMOTE_MESSAGING" tools:node="remove" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SYSTEM_EXEMPTED" tools:node="remove" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" tools:node="remove" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SHORT_SERVICE" tools:node="remove" />
-
-    <!-- Android 11+ (API 30+) Package Visibility Queries for Offline Text-To-Speech (TTS) Engines -->
-    <queries>
-        <intent>
-            <action android:name="android.intent.action.TTS_SERVICE" />
-        </intent>
-    </queries>
 </manifest>

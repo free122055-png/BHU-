@@ -6,6 +6,7 @@ import {
   Lock, Users, Volume2, User, Play, AlertCircle, Upload
 } from "lucide-react";
 import { uploadVideo, uploadImage } from "../../lib/uploadService";
+import { apiFetch } from "../../lib/api";
 
 interface InstagramCreateModalProps {
   isOpen: boolean;
@@ -84,7 +85,7 @@ export const InstagramCreateModal: React.FC<InstagramCreateModalProps> = ({
   const handleGenerateAiCaption = async () => {
     setIsGeneratingAi(true);
     try {
-      const res = await fetch("/api/generate-caption", {
+      const res = await apiFetch("/api/generate-caption", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

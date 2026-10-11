@@ -1,697 +1,2082 @@
-import React, { useState } from "react";
-import { 
-  X, 
-  Lock, 
-  Mail, 
-  User, 
-  Phone, 
-  MapPin, 
-  Eye, 
-  EyeOff, 
-  CheckCircle2, 
-  AlertCircle, 
-  Sparkles, 
-  ShieldCheck, 
-  ArrowRight,
-  UserPlus,
-  LogIn,
-  KeyRound,
-  ShoppingBag,
-  MessageSquare,
-  ExternalLink,
-  Copy,
-  Check,
-  Headphones
-} from "lucide-react";
-import { motion, AnimatePresence } from "motion/react";
-import { useAuth } from "../context/AuthContext";
-import { parseBangladeshiPhone } from "../lib/phoneUtils";
-import { ForgotPasswordModal } from "./ForgotPasswordModal";
+import React, { useState, useEffect } from 'react';
+import {
+  ChevronLeft,
+  ChevronRight,
+  Phone,
+  Mail,
+  Lock,
+  Eye,
+  EyeOff,
+  User,
+  Calendar,
+  Camera,
+  CheckCircle2,
+  AlertCircle,
+  Smartphone,
+  ShieldCheck,
+  RefreshCw,
+  ChevronDown,
+  X,
+} from 'lucide-react';
+import {
+  UserData,
+  loginWithPhone,
+  loginWithEmail,
+  loginWithGoogle,
+  loginAsDemoUser,
+  sendOtpCode,
+  verifyOtpCode,
+  createUserAccount,
+  findUserForReset,
+  resetUserPassword,
+  calculateAge,
+  formatPhone,
+  setupRecaptcha,
+  sendFirebasePhoneOtp,
+  verifyFirebasePhoneOtp,
+  checkDuplicatePhone,
+  checkDuplicateEmail,
+} from '../services/authService';
+import { sendOneSignalPush } from '../services/oneSignalService';
+import { registerBackHandler } from '../services/backNavigationService';
+import { ConfirmationResult } from 'firebase/auth';
+import { FaceScanVerification } from './FaceScanVerification';
 
-const AVATAR_PRESETS = [
-  { id: "av1", url: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&q=80", label: "Avatar 1" },
-  { id: "av2", url: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&q=80", label: "Avatar 2" },
-  { id: "av3", url: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&q=80", label: "Avatar 3" },
-  { id: "av4", url: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150&q=80", label: "Avatar 4" },
-  { id: "av5", url: "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=150&q=80", label: "Avatar 5" },
-  { id: "av6", url: "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150&q=80", label: "Avatar 6" },
-];
+interface AuthModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onSuccessLogin: (user: UserData) => void;
+  isMandatory?: boolean;
+}
 
-export const AuthModal: React.FC = () => {
-  const { 
-    isAuthModalOpen, 
-    authModalMode, 
-    authModalMessage, 
-    closeAuthModal, 
-    loginWithEmail, 
-    registerWithEmail, 
-    resetPassword,
-    quickDemoLogin 
-  } = useAuth();
+type AuthScreen =
+  | 'login'
+  | 'create_choose'
+  | 'phone_otp_step1'
+  | 'phone_otp_step2'
+  | 'phone_otp_complete'
+  | 'email_otp_step1'
+  | 'email_otp_step2'
+  | 'email_otp_complete'
+  | 'no_otp_signup'
+  | 'no_otp_face_scan'
+  | 'forgot_choose'
+  | 'forgot_input'
+  | 'forgot_otp'
+  | 'forgot_new_pass';
 
-  const [activeTab, setActiveTab] = useState<'login' | 'register' | 'forgot' | 'otp'>((authModalMode as any) || 'login');
-  
-  // Sync tab when modal opens with a specific mode
-  React.useEffect(() => {
-    if (authModalMode) {
-      setActiveTab(authModalMode);
-    }
-  }, [authModalMode, isAuthModalOpen]);
+export const AuthModal: React.FC<AuthModalProps> = ({
+  isOpen,
+  onClose,
+  onSuccessLogin,
+  isMandatory = false,
+}) => {
+  // Screen state
+  const [screen, setScreen] = useState<AuthScreen>('login');
 
-  // Login Form States
-  const [loginEmail, setLoginEmail] = useState("");
-  const [loginPassword, setLoginPassword] = useState("");
+  // Login state
+  const [loginTab, setLoginTab] = useState<'phone' | 'email'>('phone');
+  const [loginPhone, setLoginPhone] = useState('');
+  const [loginEmail, setLoginEmail] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
   const [showLoginPassword, setShowLoginPassword] = useState(false);
-  const [rememberMe, setRememberMe] = useState(true);
 
-  // Register Form States
-  const [regName, setRegName] = useState("");
-  const [regEmail, setRegEmail] = useState("");
-  const [regPhone, setRegPhone] = useState("");
-  const [regAddress, setRegAddress] = useState("");
-  const [regPassword, setRegPassword] = useState("");
-  const [regConfirmPassword, setRegConfirmPassword] = useState("");
-  const [showRegPassword, setShowRegPassword] = useState(false);
-  const [selectedAvatar, setSelectedAvatar] = useState(AVATAR_PRESETS[0].url);
-  const [agreeTerms, setAgreeTerms] = useState(true);
+  // Common Signup Fields
+  const [signupPhone, setSignupPhone] = useState('');
+  const [signupEmail, setSignupEmail] = useState('');
+  const [signupFirstName, setSignupFirstName] = useState('');
+  const [signupLastName, setSignupLastName] = useState('');
+  const [signupDob, setSignupDob] = useState('');
+  const [signupPassword, setSignupPassword] = useState('');
+  const [showSignupPassword, setShowSignupPassword] = useState(false);
+  const [signupAvatar, setSignupAvatar] = useState<string | null>(null);
+
+  // OTP State
+  const [otpDigits, setOtpDigits] = useState(['', '', '', '', '', '']);
+  const [confirmationResult, setConfirmationResult] = useState<ConfirmationResult | null>(null);
+  const [resendTimer, setResendTimer] = useState(60);
+
+  // Active Countdown Timer for OTP Resend
+  useEffect(() => {
+    if (screen === 'phone_otp_step2' || screen === 'email_otp_step2' || screen === 'forgot_otp') {
+      setResendTimer(60);
+      const interval = setInterval(() => {
+        setResendTimer((prev) => {
+          if (prev <= 1) {
+            clearInterval(interval);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+      return () => clearInterval(interval);
+    }
+  }, [screen]);
 
   // Forgot Password State
-  const [forgotEmail, setForgotEmail] = useState("");
-  const [resetSuccess, setResetSuccess] = useState(false);
-  const [showForgotResetModal, setShowForgotResetModal] = useState(false);
+  const [forgotType, setForgotType] = useState<'phone' | 'email'>('phone');
+  const [forgotTarget, setForgotTarget] = useState('');
+  const [forgotUser, setForgotUser] = useState<UserData | null>(null);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showNewPass, setShowNewPass] = useState(false);
 
-  // Common States
-  const [isLoading, setIsLoading] = useState(false);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  // General Status State
+  const [loading, setLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [duplicateTarget, setDuplicateTarget] = useState<{ type: 'phone' | 'email'; value: string } | null>(null);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  if (!isAuthModalOpen) return null;
+  // Custom Software Popup Date Picker States
+  const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
+  const [tempYear, setTempYear] = useState(1998);
+  const [tempMonth, setTempMonth] = useState(7); // August
+  const [tempDay, setTempDay] = useState(15);
 
-  const handleFirebaseError = (err: any) => {
-    const code = err?.code || "";
-    if (code.includes("user-not-found") || code.includes("invalid-credential") || code.includes("wrong-password")) {
-      return "ইমেইল অথবা পাসওয়ার্ডটি সঠিক নয়। অনুগ্রহ করে পুনরায় চেষ্টা করুন।";
-    } else if (code.includes("email-already-in-use")) {
-      return "এই ইমেইলটি দিয়ে ইতিমধ্যে অ্যাকাউন্ট খোলা আছে। অনুগ্রহ করে লগইন করুন।";
-    } else if (code.includes("weak-password")) {
-      return "পাসওয়ার্ডটি নূন্যতম ৬ অক্ষরের হতে হবে।";
-    } else if (code.includes("invalid-email")) {
-      return "দয়া করে একটি সঠিক ও কার্যকর ইমেইল এড্রেস লিখুন।";
-    } else if (code.includes("network-request-failed")) {
-      return "ইন্টারনেট সংযোগ চেক করুন এবং পুনরায় চেষ্টা করুন।";
-    }
-    return err?.message || "একটি সমস্যা হয়েছে। অনুগ্রহ করে আবার চেষ্টা করুন।";
+  // Android Back Navigation Handler for Auth Flow
+  React.useEffect(() => {
+    if (!isOpen) return;
+
+    const unregister = registerBackHandler(() => {
+      if (isDatePickerOpen) {
+        setIsDatePickerOpen(false);
+        return true;
+      }
+      if (screen !== 'login') {
+        setScreen('login');
+        return true;
+      }
+      if (!isMandatory) {
+        onClose();
+      }
+      return true;
+    });
+
+    return () => unregister();
+  }, [isOpen, isDatePickerOpen, screen, onClose]);
+
+  if (!isOpen) return null;
+
+  const triggerToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(null), 3000);
   };
+
+  const handleAvatarUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const url = URL.createObjectURL(file);
+      setSignupAvatar(url);
+      triggerToast('Profile photo added!');
+    }
+  };
+
+  // -------------------------------------------------------------
+  // HANDLERS
+  // -------------------------------------------------------------
 
   const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setErrorMsg(null);
-    setSuccessMsg(null);
+    setErrorMessage(null);
+    setLoading(true);
 
-    let emailToUse = loginEmail.trim();
-    if (!emailToUse.includes("@")) {
-      const parsed = parseBangladeshiPhone(emailToUse);
-      if (parsed.isValid) {
-        emailToUse = parsed.email;
+    try {
+      let user: UserData;
+      if (loginTab === 'phone') {
+        user = await loginWithPhone(loginPhone, loginPassword);
       } else {
-        setErrorMsg("সঠিক ১১ সংখ্যার বাংলাদেশি মোবাইল নম্বর অথবা ইমেইল লিখুন।");
-        return;
+        user = await loginWithEmail(loginEmail, loginPassword);
       }
-    }
-
-    if (!emailToUse || !loginPassword) {
-      setErrorMsg("দয়া করে ইমেইল/ফোন নম্বর এবং পাসওয়ার্ড পূরণ করুন।");
-      return;
-    }
-
-    setIsLoading(true);
-    try {
-      await loginWithEmail(emailToUse, loginPassword);
-      setSuccessMsg("স্বাগতম! আপনি সফলভাবে লগইন করেছেন।");
-    } catch (err: any) {
-      setErrorMsg(handleFirebaseError(err));
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleRegisterSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setErrorMsg(null);
-    setSuccessMsg(null);
-
-    if (!regName.trim()) {
-      setErrorMsg("আপনার পূর্ণ নাম প্রদান করুন।");
-      return;
-    }
-    if (!regPhone.trim()) {
-      setErrorMsg("আপনার মোবাইল নম্বর প্রদান করুন।");
-      return;
-    }
-    if (regPassword.length < 6) {
-      setErrorMsg("পাসওয়ার্ড নূন্যতম ৬ অক্ষরের হতে হবে।");
-      return;
-    }
-    if (regPassword !== regConfirmPassword) {
-      setErrorMsg("উভয় পাসওয়ার্ড একই হতে হবে।");
-      return;
-    }
-    if (!agreeTerms) {
-      setErrorMsg("শর্তাবলী ও নীতিমালা গ্রহণ করুন।");
-      return;
-    }
-
-    setIsLoading(true);
-    try {
-      const normalizedDigits = regPhone.trim().replace(/[^0-9]/g, "").slice(-10);
-      const dummyEmail = `${normalizedDigits}@allmayadin.com`;
-
-      await registerWithEmail({
-        name: regName,
-        email: dummyEmail,
-        phone: regPhone,
-        password: regPassword,
-        address: regAddress,
-        photoURL: selectedAvatar,
-        isPhoneVerified: true,
-        otpState: "OTP_VERIFIED"
+      triggerToast(`Welcome back, ${user.name}!`);
+      sendOneSignalPush({
+        title: '🔒 BINISTA Security Alert',
+        body: `নতুন ডিভাইসে সফল লগইন হয়েছে (${user.name})!`,
+        type: 'security',
+        uid: user.uid,
       });
-      setSuccessMsg("আপনার অ্যাকাউন্টটি সফলভাবে তৈরি হয়েছে!");
+      onSuccessLogin(user);
+      onClose();
     } catch (err: any) {
-      setErrorMsg(handleFirebaseError(err));
+      setErrorMessage(err.message || 'Login failed. Please check your credentials.');
     } finally {
-      setIsLoading(false);
+      setLoading(false);
     }
   };
 
-  const handleForgotSubmit = async (e: React.FormEvent) => {
+  const handleGoogleLogin = async () => {
+    setErrorMessage(null);
+    setLoading(true);
+    try {
+      const user = await loginWithGoogle();
+      triggerToast(`Welcome, ${user.name}!`);
+      onSuccessLogin(user);
+      onClose();
+    } catch (err: any) {
+      if (err.code !== 'auth/popup-closed-by-user') {
+        setErrorMessage(err.message || 'Google Sign-In failed.');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDemoLogin = async () => {
+    setErrorMessage(null);
+    setLoading(true);
+    try {
+      const user = await loginAsDemoUser();
+      triggerToast(`Welcome, ${user.name}!`);
+      onSuccessLogin(user);
+      onClose();
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Instant login failed.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSendPhoneOtp = async (e: React.FormEvent) => {
     e.preventDefault();
-    setErrorMsg(null);
-    if (!forgotEmail.trim()) {
-      setErrorMsg("আপনার রেজিস্টার্ড ইমেইল প্রদান করুন।");
+    setErrorMessage(null);
+    setDuplicateTarget(null);
+    if (!signupPhone) {
+      setErrorMessage('Please enter a valid phone number.');
       return;
     }
 
-    setIsLoading(true);
+    setLoading(true);
     try {
-      await resetPassword(forgotEmail.trim());
-      setResetSuccess(true);
-      setSuccessMsg("পাসওয়ার্ড রিসেট লিংক আপনার ইমেইলে পাঠানো হয়েছে।");
+      await checkDuplicatePhone(signupPhone);
+      const verifier = setupRecaptcha('recaptcha-container');
+      const result = await sendFirebasePhoneOtp(signupPhone, verifier);
+      setConfirmationResult(result);
+      setOtpDigits(['', '', '', '', '', '']);
+      setScreen('phone_otp_step2');
+      triggerToast('📱 ওটিপি কোড সরাসরি আপনার ফোনের মেসেজে (SMS) পাঠানো হয়েছে!');
     } catch (err: any) {
-      setErrorMsg(handleFirebaseError(err));
+      if (err.name === 'DuplicateAccountError' || (err.message && err.message.includes('already exists'))) {
+        setDuplicateTarget({ type: 'phone', value: signupPhone });
+        setErrorMessage('পূর্বে এই নাম্বার দিয়ে অ্যাকাউন্ট তৈরি করা রয়েছে। দয়া করে আপনার অ্যাকাউন্ট খুঁজুন।');
+      } else {
+        console.warn('Real SMS failed:', err);
+        setErrorMessage(err.message || 'SMS OTP পাঠাতে ব্যর্থ হয়েছে। অনুগ্রহ করে নম্বরটি চেক করুন।');
+      }
     } finally {
-      setIsLoading(false);
+      setLoading(false);
     }
   };
 
-  const handleDemo = async (role: 'customer' | 'admin') => {
-    setIsLoading(true);
-    setErrorMsg(null);
+  const handleVerifyPhoneOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMessage(null);
+    const entered = otpDigits.join('');
+    if (entered.length < 6) {
+      setErrorMessage('Please enter all 6 digits of the OTP code.');
+      return;
+    }
+
+    setLoading(true);
     try {
-      await quickDemoLogin(role);
+      let verified = false;
+      if (confirmationResult) {
+        try {
+          await verifyFirebasePhoneOtp(confirmationResult, entered);
+          verified = true;
+        } catch (firebaseErr: any) {
+          console.warn('Firebase confirm failed, checking persistent store:', firebaseErr);
+        }
+      }
+
+      if (!verified) {
+        verified = await verifyOtpCode(signupPhone, 'phone', entered);
+      }
+
+      if (verified) {
+        setScreen('phone_otp_complete');
+      } else {
+        throw new Error('ভুল ওটিপি কোড দেওয়া হয়েছে।');
+      }
     } catch (err: any) {
-      setErrorMsg(handleFirebaseError(err));
+      setErrorMessage(err.message || 'Invalid verification code.');
     } finally {
-      setIsLoading(false);
+      setLoading(false);
+    }
+  };
+
+  const handleSendEmailOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMessage(null);
+    setDuplicateTarget(null);
+    if (!signupEmail) {
+      setErrorMessage('Please enter a valid email address.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await checkDuplicateEmail(signupEmail);
+      await sendOtpCode(signupEmail, 'email');
+      setOtpDigits(['', '', '', '', '', '']);
+      setScreen('email_otp_step2');
+      triggerToast('✉️ ওটিপি কোড সরাসরি আপনার ইমেইলে পাঠানো হয়েছে!');
+    } catch (err: any) {
+      if (err.name === 'DuplicateAccountError' || (err.message && err.message.includes('already exists'))) {
+        setDuplicateTarget({ type: 'email', value: signupEmail });
+        setErrorMessage('পূর্বে এই ইমেইল দিয়ে অ্যাকাউন্ট তৈরি করা রয়েছে। দয়া করে আপনার অ্যাকাউন্ট খুঁজুন।');
+      } else {
+        setErrorMessage(err.message || 'Failed to send OTP code to email.');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleVerifyEmailOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMessage(null);
+    const entered = otpDigits.join('');
+    if (entered.length < 6) {
+      setErrorMessage('Please enter all 6 digits of the verification code.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await verifyOtpCode(signupEmail, 'email', entered);
+      setScreen('email_otp_complete');
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Invalid verification code.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCreateAccountSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMessage(null);
+
+    // Validate 18+ age gate
+    if (!signupDob) {
+      setErrorMessage('Please select your Date of Birth.');
+      return;
+    }
+    const age = calculateAge(signupDob);
+    if (age < 18) {
+      setErrorMessage('You must be at least 18 years old to create a BINISTA account.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const user = await createUserAccount({
+        phone: signupPhone,
+        email: signupEmail,
+        firstName: signupFirstName,
+        lastName: signupLastName,
+        dob: signupDob,
+        password: signupPassword,
+        avatarUrl: signupAvatar || undefined,
+      });
+
+      triggerToast(`Account created successfully! Welcome, ${user.name}`);
+      onSuccessLogin(user);
+      onClose();
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Failed to create account.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleProceedToFaceScan = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMessage(null);
+
+    if (!signupPhone) {
+      setErrorMessage('Please enter your phone number.');
+      return;
+    }
+
+    if (!signupFirstName.trim() || !signupLastName.trim()) {
+      setErrorMessage('Please enter both your first and last name.');
+      return;
+    }
+
+    // Validate 18+ age gate
+    if (!signupDob) {
+      setErrorMessage('Please select your Date of Birth.');
+      return;
+    }
+    const age = calculateAge(signupDob);
+    if (age < 18) {
+      setErrorMessage('You must be at least 18 years old to create a BINISTA account.');
+      return;
+    }
+
+    if (!signupPassword || signupPassword.length < 6) {
+      setErrorMessage('Password must be at least 6 characters long.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await checkDuplicatePhone(signupPhone);
+      if (signupEmail) {
+        await checkDuplicateEmail(signupEmail);
+      }
+      setScreen('no_otp_face_scan');
+    } catch (err: any) {
+      if (err.name === 'DuplicateAccountError' || (err.message && err.message.includes('already exists'))) {
+        setDuplicateTarget({ type: 'phone', value: signupPhone });
+        setErrorMessage('পূর্বে এই নাম্বার দিয়ে অ্যাকাউন্ট তৈরি করা রয়েছে। দয়া করে লগইন করুন।');
+      } else {
+        setErrorMessage(err.message || 'Verification error occurred.');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleForgotInputSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMessage(null);
+    if (!forgotTarget) {
+      setErrorMessage(`Please enter your ${forgotType === 'phone' ? 'phone number' : 'email address'}.`);
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const u = await findUserForReset(forgotTarget, forgotType);
+      setForgotUser(u);
+      await sendOtpCode(forgotTarget, forgotType);
+      setOtpDigits(['', '', '', '', '', '']);
+      setScreen('forgot_otp');
+      triggerToast(`🔐 ভেরিফিকেশন কোড পাঠানো হয়েছে (${forgotType === 'phone' ? 'SMS' : 'Email'})`);
+    } catch (err: any) {
+      setErrorMessage(err.message || 'No user found.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleVerifyForgotOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMessage(null);
+    const entered = otpDigits.join('');
+    if (entered.length < 6) {
+      setErrorMessage('Please enter all 6 digits of the code.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await verifyOtpCode(forgotTarget, forgotType, entered);
+      setScreen('forgot_new_pass');
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Invalid code.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResetPasswordSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMessage(null);
+    if (newPassword !== confirmPassword) {
+      setErrorMessage('New password and confirm password do not match.');
+      return;
+    }
+    if (newPassword.length < 6) {
+      setErrorMessage('Password must be at least 6 characters long.');
+      return;
+    }
+
+    if (!forgotUser) return;
+
+    setLoading(true);
+    try {
+      await resetUserPassword(forgotUser.uid, newPassword);
+      triggerToast('Password reset successfully! Please log in.');
+      setScreen('login');
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Failed to reset password.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleOtpDigitChange = (index: number, val: string) => {
+    if (val.length > 1) {
+      val = val.slice(-1);
+    }
+    const copy = [...otpDigits];
+    copy[index] = val;
+    setOtpDigits(copy);
+
+    if (val && index < 5) {
+      const nextInput = document.getElementById(`otp-box-${index + 1}`);
+      nextInput?.focus();
     }
   };
 
   return (
-    <div className="fixed inset-0 z-[1200] flex items-end sm:items-center justify-center p-0 sm:p-4">
-      {/* Dark Backdrop */}
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        onClick={closeAuthModal}
-        className="fixed inset-0 bg-black/75 backdrop-blur-xs transition-opacity"
-      />
+    <div className="fixed inset-0 z-50 bg-white text-slate-900 flex items-center justify-center overflow-hidden select-none animate-in fade-in duration-200">
+      {/* Invisible container for Firebase Phone Auth reCAPTCHA */}
+      <div id="recaptcha-container"></div>
 
-      {/* Modal Card */}
-      <motion.div
-        initial={{ y: "100%", opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
-        exit={{ y: "100%", opacity: 0 }}
-        transition={{ type: "spring", damping: 28, stiffness: 300 }}
-        className="relative w-full max-w-lg bg-[#ffffff] rounded-t-[32px] sm:rounded-[32px] shadow-2xl overflow-hidden z-10 max-h-[92vh] flex flex-col border border-gray-100"
-      >
-        {/* Top Header Banner */}
-        <div className="bg-gradient-to-br from-[#021a12] via-[#00381a] to-[#01261a] text-white p-5 sm:p-6 relative overflow-hidden shrink-0 border-b border-[#007f3e]/40 shadow-lg">
-          <div className="absolute -right-10 -bottom-10 w-40 h-40 bg-[#ffb703]/10 rounded-full blur-2xl pointer-events-none"></div>
-          <button
-            onClick={closeAuthModal}
-            className="absolute top-4 right-4 w-9 h-9 rounded-full bg-white/15 hover:bg-white/25 text-white flex items-center justify-center transition-all active:scale-95 border border-white/20 shadow-sm"
-            aria-label="Close"
-            title="বন্ধ করুন"
-          >
-            <X className="w-5 h-5 stroke-[2.5]" />
-          </button>
+      {/* 100% Mobile Viewport Container */}
+      <div className="w-full max-w-[430px] h-[100dvh] sm:h-[880px] sm:max-h-[920px] bg-white flex flex-col justify-between p-5 pt-4 pb-6 relative overflow-y-auto no-scrollbar sm:rounded-[40px] sm:border-[8px] sm:border-slate-900 sm:shadow-2xl">
 
-          {/* Logo & Brand Badge */}
-          <div className="flex items-center gap-2.5 mb-3">
-            <img 
-              src="/app_icon.png" 
-              alt="BINISTA" 
-              className="w-9 h-9 rounded-xl object-cover ring-2 ring-emerald-500/50 shadow-lg shadow-emerald-500/30" 
-            />
-            <div>
-              <span className="text-xs font-black tracking-widest text-emerald-400 block uppercase">BINISTA</span>
-              <span className="text-base font-black tracking-tight text-white block">রিয়েল-টাইম লাইভ চ্যাট ও কমিউনিটি</span>
-            </div>
+        {/* Global Floating Toast */}
+        {toastMessage && (
+          <div className="fixed top-5 left-1/2 -translate-x-1/2 z-50 bg-slate-900 text-white text-xs font-bold px-4 py-2.5 rounded-full shadow-2xl flex items-center gap-2 border border-white/20 animate-in slide-in-from-top-3">
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span>{toastMessage}</span>
           </div>
+        )}
 
-          {/* Reason Alert (Why Login is Required) */}
-          <div className="bg-white/10 backdrop-blur-md rounded-2xl p-3.5 border border-white/20 flex items-start gap-3 shadow-inner">
-            <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white flex items-center justify-center shrink-0 mt-0.5 font-bold shadow-md">
-              <Sparkles className="w-4 h-4" />
+        {/* Error Alert Box */}
+        {errorMessage && (
+          <div className="bg-rose-50 border border-rose-200 text-rose-700 rounded-2xl p-3 flex flex-col gap-2 text-xs font-bold mb-2 shrink-0 animate-in shake duration-200">
+            <div className="flex items-start gap-2.5">
+              <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+              <span className="flex-1 leading-snug">{errorMessage}</span>
             </div>
-            <div>
-              <h3 className="text-xs font-black text-emerald-400 leading-tight">
-                {authModalMessage || "একাউন্টে প্রবেশ করতে লগইন করুন"}
-              </h3>
-              <p className="text-[11px] text-gray-200 mt-1 leading-snug font-medium">
-                আপনার রিয়েল-টাইম চ্যাট, রিলস ও সোশ্যাল কমিউনিটি উপভোগ করতে আপনার একাউন্টে লগইন করুন।
-              </p>
-            </div>
+            {duplicateTarget && (
+              <button
+                type="button"
+                onClick={() => {
+                  setForgotType(duplicateTarget.type);
+                  setForgotTarget(duplicateTarget.value);
+                  setErrorMessage(null);
+                  setDuplicateTarget(null);
+                  setScreen('forgot_input');
+                }}
+                className="w-full py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-black text-xs transition-colors cursor-pointer text-center shadow-xs"
+              >
+                🔍 আপনার অ্যাকাউন্ট খুঁজুন (Find Your Account)
+              </button>
+            )}
           </div>
-        </div>
+        )}
 
-        {/* Tab Selector */}
-        <div className="flex border-b border-gray-200 bg-gray-50/90 p-1.5 gap-1 shrink-0">
-          <button
-            onClick={() => { setActiveTab('login'); setErrorMsg(null); setSuccessMsg(null); }}
-            className={`flex-1 py-2.5 px-3 rounded-2xl text-xs font-black flex items-center justify-center gap-1.5 transition-all ${
-              activeTab === 'login'
-                ? "bg-white text-[#004b23] shadow-sm border border-gray-200"
-                : "text-gray-600 hover:text-gray-900"
-            }`}
-          >
-            <LogIn className="w-3.5 h-3.5" />
-            <span>লগইন (Sign In)</span>
-          </button>
-
-          <button
-            onClick={() => { setActiveTab('register'); setErrorMsg(null); setSuccessMsg(null); }}
-            className={`flex-1 py-2.5 px-3 rounded-2xl text-xs font-black flex items-center justify-center gap-1.5 transition-all ${
-              activeTab === 'register' || activeTab === 'otp'
-                ? "bg-white text-[#004b23] shadow-sm border border-gray-200"
-                : "text-gray-600 hover:text-gray-900"
-            }`}
-          >
-            <UserPlus className="w-3.5 h-3.5" />
-            <span>নতুন একাউন্ট (Sign Up)</span>
-          </button>
-        </div>
-
-        {/* Scrollable Form Body */}
-        <div className="p-5 sm:p-6 overflow-y-auto flex-1">
-          {/* Notifications */}
-          {errorMsg && (
-            <div className="mb-4 bg-red-50 text-red-700 p-3 rounded-2xl text-xs font-bold flex items-start gap-2 border border-red-200">
-              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-red-600" />
-              <span>{errorMsg}</span>
+        {/* ========================================================= */}
+        {/* SCREEN 1: LOGIN (Phone / Email)                           */}
+        {/* ========================================================= */}
+        {screen === 'login' && (
+          <div className="flex-1 flex flex-col justify-between h-full animate-in fade-in duration-150">
+            
+            {/* Top Bar Header */}
+            <div className="w-full flex items-center justify-between pt-1 pb-1 shrink-0">
+              {!isMandatory ? (
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="p-1 -ml-1 text-slate-800 hover:opacity-70 transition-opacity cursor-pointer"
+                  aria-label="Back"
+                >
+                  <ChevronLeft className="w-7 h-7 stroke-[2.2]" />
+                </button>
+              ) : (
+                <div className="w-7" />
+              )}
+              <span className="text-xs font-black tracking-widest text-slate-400 uppercase">BINISTA AUTH</span>
             </div>
-          )}
 
-          {successMsg && (
-            <div className="mb-4 bg-emerald-50 text-emerald-700 p-3 rounded-2xl text-xs font-bold flex items-start gap-2 border border-emerald-200">
-              <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-emerald-600" />
-              <span>{successMsg}</span>
-            </div>
-          )}
-
-          {/* TAB 1: LOGIN */}
-          {activeTab === 'login' && (
-            <form onSubmit={handleLoginSubmit} className="space-y-4">
-              <div>
-                <label className="block text-xs font-black text-gray-700 mb-1.5">
-                  মোবাইল নম্বর (অ্যাকাউন্ট নম্বর)
-                </label>
-                <div className="relative">
-                  <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400">
-                    <Phone className="w-4 h-4" />
-                  </div>
-                  <input
-                    type="text"
-                    value={loginEmail}
-                    onChange={(e) => setLoginEmail(e.target.value)}
-                    placeholder="017XXXXXXXX"
-                    className="w-full bg-gray-50 border border-gray-200 focus:border-[#007f3e] focus:bg-white text-gray-900 rounded-2xl py-3 pl-10 pr-4 text-xs font-bold focus:outline-none transition-all placeholder:text-gray-400 placeholder:font-normal"
-                    required
-                  />
-                </div>
+            {/* Middle Main Content */}
+            <div className="flex-1 flex flex-col justify-center my-auto space-y-3.5 sm:space-y-4 py-2">
+              
+              {/* Branding Header */}
+              <div className="text-center shrink-0">
+                <h1 className="font-extrabold text-2xl text-slate-900 tracking-tight">
+                  BINISTA
+                </h1>
+                <h2 className="font-bold text-sm text-slate-900 mt-0.5">
+                  Welcome Back
+                </h2>
+                <p className="text-xs text-gray-500 font-medium">
+                  Sign in to your BINISTA account
+                </p>
               </div>
 
-              <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <label className="text-xs font-black text-gray-700">
-                    পাসওয়ার্ড
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() => { setShowForgotResetModal(true); setErrorMsg(null); }}
-                    className="text-[11px] font-bold text-[#007f3e] hover:underline cursor-pointer"
-                  >
-                    পাসওয়ার্ড ভুলে গেছেন?
-                  </button>
-                </div>
-                <div className="relative">
-                  <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400">
-                    <Lock className="w-4 h-4" />
+              {/* Login Method Pills Toggle */}
+              <div className="w-full bg-[#f1f5f9] p-1 rounded-2xl flex items-center gap-1 border border-slate-200/60 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLoginTab('phone');
+                    setErrorMessage(null);
+                  }}
+                  className={`flex-1 py-2.5 rounded-xl font-extrabold text-xs transition-all cursor-pointer ${
+                    loginTab === 'phone'
+                      ? 'bg-[#131b26] text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  Phone Number
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLoginTab('email');
+                    setErrorMessage(null);
+                  }}
+                  className={`flex-1 py-2.5 rounded-xl font-extrabold text-xs transition-all cursor-pointer ${
+                    loginTab === 'email'
+                      ? 'bg-[#131b26] text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  Email Address
+                </button>
+              </div>
+
+              {/* Login Form Inputs */}
+              <form onSubmit={handleLoginSubmit} className="w-full flex flex-col gap-3 shrink-0">
+                
+                {loginTab === 'phone' ? (
+                  <div className="bg-[#f8fafc] border border-gray-200 focus-within:border-slate-900 rounded-2xl p-3 flex items-center gap-3 transition-colors">
+                    <Phone className="w-5 h-5 text-slate-500 shrink-0" />
+                    <div className="flex flex-col flex-1">
+                      <label className="text-[10px] font-extrabold text-gray-400 uppercase tracking-wider">
+                        Phone Number
+                      </label>
+                      <input
+                        type="tel"
+                        value={loginPhone}
+                        onChange={(e) => setLoginPhone(e.target.value)}
+                        placeholder="+880 1XXXXXXXXX"
+                        className="w-full bg-transparent text-xs font-bold text-slate-900 focus:outline-none placeholder-gray-400"
+                        required
+                      />
+                    </div>
                   </div>
-                  <input
-                    type={showLoginPassword ? "text" : "password"}
-                    value={loginPassword}
-                    onChange={(e) => setLoginPassword(e.target.value)}
-                    placeholder="আপনার পাসওয়ার্ড লিখুন"
-                    className="w-full bg-gray-50 border border-gray-200 focus:border-[#007f3e] focus:bg-white text-gray-900 rounded-2xl py-3 pl-10 pr-11 text-xs font-bold focus:outline-none transition-all placeholder:text-gray-400 placeholder:font-normal"
-                    required
-                  />
+                ) : (
+                  <div className="bg-[#f8fafc] border border-gray-200 focus-within:border-slate-900 rounded-2xl p-3 flex items-center gap-3 transition-colors">
+                    <Mail className="w-5 h-5 text-slate-500 shrink-0" />
+                    <div className="flex flex-col flex-1">
+                      <label className="text-[10px] font-extrabold text-gray-400 uppercase tracking-wider">
+                        Email Address
+                      </label>
+                      <input
+                        type="email"
+                        value={loginEmail}
+                        onChange={(e) => setLoginEmail(e.target.value)}
+                        placeholder="you@example.com"
+                        className="w-full bg-transparent text-xs font-bold text-slate-900 focus:outline-none placeholder-gray-400"
+                        required
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* Password Input */}
+                <div className="bg-[#f8fafc] border border-gray-200 focus-within:border-slate-900 rounded-2xl p-3 flex items-center gap-3 transition-colors">
+                  <Lock className="w-5 h-5 text-slate-500 shrink-0" />
+                  <div className="flex flex-col flex-1">
+                    <label className="text-[10px] font-extrabold text-gray-400 uppercase tracking-wider">
+                      Password
+                    </label>
+                    <input
+                      type={showLoginPassword ? 'text' : 'password'}
+                      value={loginPassword}
+                      onChange={(e) => setLoginPassword(e.target.value)}
+                      placeholder="••••••••"
+                      className="w-full bg-transparent text-xs font-bold text-slate-900 focus:outline-none placeholder-gray-400"
+                      required
+                    />
+                  </div>
                   <button
                     type="button"
-                    onClick={() => setShowLoginPassword(!showLoginPassword)}
-                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                    onClick={() => setShowLoginPassword((prev) => !prev)}
+                    className="p-1 text-slate-400 hover:text-slate-700 cursor-pointer"
                   >
                     {showLoginPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
                 </div>
-              </div>
 
-              <div className="flex items-center justify-between">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={rememberMe}
-                    onChange={(e) => setRememberMe(e.target.checked)}
-                    className="rounded text-[#007f3e] focus:ring-[#007f3e] w-4 h-4 accent-[#007f3e]"
-                  />
-                  <span className="text-xs text-gray-600 font-semibold">লগইন মনে রাখুন</span>
-                </label>
+                {/* Primary Log In Button */}
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full py-3.5 rounded-2xl bg-[#131b26] hover:bg-slate-800 active:scale-[0.98] text-white font-extrabold text-sm shadow-md transition-all cursor-pointer flex items-center justify-center gap-2 mt-0.5 disabled:opacity-50"
+                >
+                  {loading ? (
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <span>Log In</span>
+                  )}
+                </button>
+              </form>
+
+              {/* Instant Demo Login Button */}
+              <button
+                type="button"
+                onClick={handleDemoLogin}
+                disabled={loading}
+                className="w-full py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-700 active:scale-[0.98] text-white font-extrabold text-xs shadow-sm transition-all cursor-pointer flex items-center justify-center gap-2 mt-2 disabled:opacity-50 shrink-0"
+              >
+                <span>⚡ Instant Creator Login (এক ক্লিকে প্রবেশ)</span>
+              </button>
+
+              {/* Forgot Password Link */}
+              <div className="text-center shrink-0 pt-0.5">
                 <button
                   type="button"
-                  onClick={() => setShowForgotResetModal(true)}
-                  className="text-xs font-bold text-[#007f3e] hover:underline cursor-pointer"
+                  onClick={() => {
+                    setErrorMessage(null);
+                    setScreen('forgot_choose');
+                  }}
+                  className="text-xs font-extrabold text-slate-500 hover:text-slate-900 transition-colors cursor-pointer"
                 >
-                  পাসওয়ার্ড ভুলে গেছেন?
+                  Forgot Password?
                 </button>
               </div>
 
-              <button
-                type="submit"
-                disabled={isLoading}
-                className="w-full py-3.5 bg-[#007f3e] hover:bg-[#006e36] text-white font-black text-sm rounded-2xl shadow-lg shadow-[#007f3e]/20 flex items-center justify-center gap-2 active:scale-98 transition-all disabled:opacity-50"
-              >
-                {isLoading ? (
-                  <span>যাচাই করা হচ্ছে...</span>
-                ) : (
-                  <>
-                    <span>লগইন করুন</span>
-                    <ArrowRight className="w-4 h-4" />
-                  </>
-                )}
-              </button>
+            </div>
 
-              {/* Demo Fast Logins for Convenience */}
-              <div className="pt-3 border-t border-gray-100">
-                <div className="text-center text-[10px] text-gray-400 font-bold uppercase tracking-wider mb-2">
-                  অথবা দ্রুত টেস্ট করতে ১-ক্লিক ডেমো লগইন
+            {/* Bottom Footer Section CTA */}
+            <div className="pt-3.5 border-t border-gray-100 text-center shrink-0">
+              <span className="text-xs text-gray-500 font-semibold">
+                Don't have an account?{' '}
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  setErrorMessage(null);
+                  setScreen('create_choose');
+                }}
+                className="text-xs font-extrabold text-[#0066FF] hover:underline cursor-pointer"
+              >
+                Create Account
+              </button>
+            </div>
+
+          </div>
+        )}
+
+        {/* ========================================================= */}
+        {/* SCREEN 2: CREATE ACCOUNT (Choose Method - 3 Cards)        */}
+        {/* ========================================================= */}
+        {screen === 'create_choose' && (
+          <div className="flex-1 flex flex-col justify-between h-full animate-in fade-in duration-150">
+            
+            <div className="w-full flex items-center justify-between pt-1 pb-2 border-b border-gray-100 shrink-0">
+              <button
+                type="button"
+                onClick={() => setScreen('login')}
+                className="p-1 -ml-1 text-slate-800 hover:opacity-70 transition-opacity cursor-pointer"
+              >
+                <ChevronLeft className="w-7 h-7 stroke-[2.2]" />
+              </button>
+              <h1 className="font-extrabold text-base text-slate-900 tracking-tight">
+                BINISTA
+              </h1>
+              <div className="w-7" />
+            </div>
+
+            <div className="flex-1 flex flex-col justify-center my-auto py-3 space-y-4">
+              <div className="text-left shrink-0">
+                <h2 className="font-extrabold text-xl text-slate-900 leading-tight">
+                  Create Account
+                </h2>
+                <p className="text-xs text-gray-500 font-medium mt-1">
+                  Choose how you want to create your account
+                </p>
+              </div>
+
+              {/* 3 Selection Cards */}
+              <div className="flex flex-col gap-3 shrink-0">
+                
+                {/* Card 1: Phone + OTP */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setErrorMessage(null);
+                    setScreen('phone_otp_step1');
+                  }}
+                  className="w-full p-4 rounded-2xl bg-white border border-gray-200 hover:border-slate-900 hover:bg-slate-50 transition-all text-left flex items-center justify-between cursor-pointer group shadow-2xs"
+                >
+                  <div className="flex items-center gap-3.5">
+                    <div className="p-3 bg-slate-100 group-hover:bg-slate-200 rounded-xl text-slate-900 transition-colors">
+                      <Phone className="w-5 h-5 stroke-[2.2]" />
+                    </div>
+                    <div>
+                      <h3 className="font-extrabold text-sm text-slate-900">
+                        Phone Number + OTP
+                      </h3>
+                      <p className="text-xs text-gray-500 font-medium">
+                        Quick and secure
+                      </p>
+                    </div>
+                  </div>
+                  <ChevronRight className="w-5 h-5 text-gray-400 group-hover:text-slate-900 transition-colors" />
+                </button>
+
+                {/* Card 2: Email + OTP */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setErrorMessage(null);
+                    setScreen('email_otp_step1');
+                  }}
+                  className="w-full p-4 rounded-2xl bg-white border border-gray-200 hover:border-slate-900 hover:bg-slate-50 transition-all text-left flex items-center justify-between cursor-pointer group shadow-2xs"
+                >
+                  <div className="flex items-center gap-3.5">
+                    <div className="p-3 bg-slate-100 group-hover:bg-slate-200 rounded-xl text-slate-900 transition-colors">
+                      <Mail className="w-5 h-5 stroke-[2.2]" />
+                    </div>
+                    <div>
+                      <h3 className="font-extrabold text-sm text-slate-900">
+                        Email + OTP
+                      </h3>
+                      <p className="text-xs text-gray-500 font-medium">
+                        Secure and reliable
+                      </p>
+                    </div>
+                  </div>
+                  <ChevronRight className="w-5 h-5 text-gray-400 group-hover:text-slate-900 transition-colors" />
+                </button>
+
+                {/* Card 3: Phone (No OTP) */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setErrorMessage(null);
+                    setScreen('no_otp_signup');
+                  }}
+                  className="w-full p-4 rounded-2xl bg-white border border-gray-200 hover:border-slate-900 hover:bg-slate-50 transition-all text-left flex items-center justify-between cursor-pointer group shadow-2xs"
+                >
+                  <div className="flex items-center gap-3.5">
+                    <div className="p-3 bg-slate-100 group-hover:bg-slate-200 rounded-xl text-slate-900 transition-colors flex items-center gap-1">
+                      <Smartphone className="w-5 h-5 stroke-[2.2]" />
+                    </div>
+                    <div>
+                      <h3 className="font-extrabold text-sm text-slate-900">
+                        Phone Number (Face Scan)
+                      </h3>
+                      <p className="text-xs text-gray-500 font-medium">
+                        Auto Face Scan • No OTP required
+                      </p>
+                    </div>
+                  </div>
+                  <ChevronRight className="w-5 h-5 text-gray-400 group-hover:text-slate-900 transition-colors" />
+                </button>
+
+              </div>
+            </div>
+
+            {/* Bottom Footer */}
+            <div className="pt-3.5 border-t border-gray-100 text-center shrink-0">
+              <span className="text-xs text-gray-500 font-semibold">
+                Already have an account?{' '}
+              </span>
+              <button
+                type="button"
+                onClick={() => setScreen('login')}
+                className="text-xs font-extrabold text-[#0066FF] hover:underline cursor-pointer"
+              >
+                Log In
+              </button>
+            </div>
+
+          </div>
+        )}
+
+        {/* ========================================================= */}
+        {/* SCREEN 3: PHONE + OTP (Step 1 - Enter Phone)              */}
+        {/* ========================================================= */}
+        {screen === 'phone_otp_step1' && (
+          <form onSubmit={handleSendPhoneOtp} className="flex-1 flex flex-col justify-between h-full animate-in fade-in duration-150">
+            <div className="w-full flex items-center justify-between pt-1 pb-2 border-b border-gray-100 shrink-0">
+              <button
+                type="button"
+                onClick={() => setScreen('create_choose')}
+                className="p-1 -ml-1 text-slate-800 hover:opacity-70 transition-opacity cursor-pointer"
+              >
+                <ChevronLeft className="w-7 h-7 stroke-[2.2]" />
+              </button>
+              <h1 className="font-extrabold text-base text-slate-900 tracking-tight">
+                BINISTA
+              </h1>
+              <div className="w-7" />
+            </div>
+
+            <div className="flex-1 flex flex-col justify-center my-auto py-3 space-y-4">
+              <div className="shrink-0">
+                <h2 className="font-extrabold text-xl text-slate-900 leading-tight">
+                  Create Account
+                </h2>
+                <p className="text-xs text-gray-500 font-medium mt-1">
+                  Enter your phone number
+                </p>
+              </div>
+
+              <div className="bg-[#f8fafc] border border-gray-200 focus-within:border-slate-900 rounded-2xl p-3 flex items-center gap-3 transition-colors shrink-0">
+                <Phone className="w-5 h-5 text-slate-500 shrink-0" />
+                <div className="flex flex-col flex-1">
+                  <label className="text-[10px] font-extrabold text-gray-400 uppercase tracking-wider">
+                    Phone Number
+                  </label>
+                  <input
+                    type="tel"
+                    value={signupPhone}
+                    onChange={(e) => setSignupPhone(e.target.value)}
+                    placeholder="+880 1XXXXXXXXX"
+                    className="w-full bg-transparent text-xs font-bold text-slate-900 focus:outline-none placeholder-gray-400"
+                    required
+                  />
                 </div>
-                <div className="grid grid-cols-2 gap-2">
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full py-3.5 rounded-2xl bg-[#131b26] hover:bg-slate-800 text-white font-extrabold text-sm shadow-md transition-all cursor-pointer text-center flex items-center justify-center gap-2 shrink-0"
+            >
+              {loading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <span>Continue</span>}
+            </button>
+          </form>
+        )}
+
+        {/* ========================================================= */}
+        {/* SCREEN 4: PHONE + OTP (Step 2 - Verify OTP)              */}
+        {/* ========================================================= */}
+        {screen === 'phone_otp_step2' && (
+          <form onSubmit={handleVerifyPhoneOtp} className="flex-1 flex flex-col justify-between h-full animate-in fade-in duration-150">
+            <div className="w-full flex items-center justify-between pt-1 pb-2 border-b border-gray-100 shrink-0">
+              <button
+                type="button"
+                onClick={() => setScreen('phone_otp_step1')}
+                className="p-1 -ml-1 text-slate-800 hover:opacity-70 transition-opacity cursor-pointer"
+              >
+                <ChevronLeft className="w-7 h-7 stroke-[2.2]" />
+              </button>
+              <h1 className="font-extrabold text-base text-slate-900 tracking-tight">
+                BINISTA
+              </h1>
+              <div className="w-7" />
+            </div>
+
+            <div className="flex-1 flex flex-col justify-center my-auto py-3 space-y-4">
+              <div className="shrink-0">
+                <h2 className="font-extrabold text-xl text-slate-900 leading-tight">
+                  Verify OTP
+                </h2>
+                <p className="text-xs text-gray-500 font-medium mt-1">
+                  We've sent a 6 digit code to {formatPhone(signupPhone)}
+                </p>
+              </div>
+
+              {/* 6 Digit Input Boxes */}
+              <div className="flex items-center justify-between gap-2 shrink-0">
+                {otpDigits.map((digit, idx) => (
+                  <input
+                    key={idx}
+                    id={`otp-box-${idx}`}
+                    type="text"
+                    maxLength={1}
+                    value={digit}
+                    onChange={(e) => handleOtpDigitChange(idx, e.target.value)}
+                    className="w-11 h-12 rounded-xl border border-gray-200 text-center font-black text-lg text-slate-900 focus:outline-none focus:border-slate-900 bg-[#f8fafc]"
+                  />
+                ))}
+              </div>
+
+              <div className="text-center shrink-0 pt-2">
+                <button
+                  type="button"
+                  disabled={resendTimer > 0 || loading}
+                  onClick={async (e) => {
+                    if (resendTimer > 0) return;
+                    await handleSendPhoneOtp(e);
+                  }}
+                  className={`text-xs font-bold transition-colors ${
+                    resendTimer > 0
+                      ? 'text-gray-400 cursor-not-allowed'
+                      : 'text-slate-900 hover:underline cursor-pointer'
+                  }`}
+                >
+                  {resendTimer > 0
+                    ? `Resend code in 00:${resendTimer < 10 ? '0' + resendTimer : resendTimer}`
+                    : 'Resend Code'}
+                </button>
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full py-3.5 rounded-2xl bg-[#131b26] hover:bg-slate-800 text-white font-extrabold text-sm shadow-md transition-all cursor-pointer text-center flex items-center justify-center gap-2 shrink-0"
+            >
+              {loading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <span>Verify</span>}
+            </button>
+          </form>
+        )}
+
+        {/* ========================================================= */}
+        {/* SCREEN 5: PHONE + OTP (Complete Profile)                  */}
+        {/* ========================================================= */}
+        {screen === 'phone_otp_complete' && (
+          <form onSubmit={handleCreateAccountSubmit} className="flex-1 flex flex-col justify-between h-full animate-in fade-in duration-150">
+            <div className="w-full flex items-center justify-between pt-1 pb-2 border-b border-gray-100 shrink-0">
+              <button
+                type="button"
+                onClick={() => setScreen('phone_otp_step2')}
+                className="p-1 -ml-1 text-slate-800 hover:opacity-70 transition-opacity cursor-pointer"
+              >
+                <ChevronLeft className="w-7 h-7 stroke-[2.2]" />
+              </button>
+              <h1 className="font-extrabold text-base text-slate-900 tracking-tight">
+                BINISTA
+              </h1>
+              <div className="w-7" />
+            </div>
+
+            <div className="flex-1 flex flex-col justify-center my-auto py-2 space-y-3">
+              <div className="shrink-0">
+                <h2 className="font-extrabold text-xl text-slate-900 leading-tight">
+                  Complete Your Profile
+                </h2>
+                <p className="text-xs text-gray-500 font-medium mt-0.5">
+                  Add a few details to get started
+                </p>
+              </div>
+
+              {/* Photo Upload Circle */}
+              <div className="flex flex-col items-center justify-center shrink-0">
+                <div className="relative">
+                  <img
+                    src={
+                      signupAvatar ||
+                      'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=200&q=80'
+                    }
+                    alt="Avatar"
+                    className="w-16 h-16 rounded-full object-cover shadow-sm border border-gray-200"
+                  />
+                  <label
+                    htmlFor="signup-photo-input"
+                    className="absolute bottom-0 right-0 w-6 h-6 bg-slate-900 text-white rounded-full flex items-center justify-center border-2 border-white shadow-sm cursor-pointer"
+                  >
+                    <Camera className="w-3 h-3" />
+                    <input
+                      id="signup-photo-input"
+                      type="file"
+                      accept="image/*"
+                      onChange={handleAvatarUpload}
+                      className="hidden"
+                    />
+                  </label>
+                </div>
+                <span className="text-[11px] font-bold text-gray-500 mt-1">
+                  Add Photo (Optional)
+                </span>
+              </div>
+
+              {/* Form Input Fields */}
+              <div className="flex flex-col gap-2 shrink-0">
+                <div className="bg-[#f8fafc] border border-gray-200 focus-within:border-slate-900 rounded-2xl p-2.5 flex items-center gap-2.5">
+                  <User className="w-4 h-4 text-slate-500 shrink-0" />
+                  <div className="flex flex-col flex-1">
+                    <label className="text-[9px] font-extrabold text-gray-400 uppercase">First Name</label>
+                    <input
+                      type="text"
+                      value={signupFirstName}
+                      onChange={(e) => setSignupFirstName(e.target.value)}
+                      placeholder="Your first name"
+                      className="w-full bg-transparent text-xs font-bold text-slate-900 focus:outline-none"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div className="bg-[#f8fafc] border border-gray-200 focus-within:border-slate-900 rounded-2xl p-2.5 flex items-center gap-2.5">
+                  <User className="w-4 h-4 text-slate-500 shrink-0" />
+                  <div className="flex flex-col flex-1">
+                    <label className="text-[9px] font-extrabold text-gray-400 uppercase">Last Name</label>
+                    <input
+                      type="text"
+                      value={signupLastName}
+                      onChange={(e) => setSignupLastName(e.target.value)}
+                      placeholder="Your last name"
+                      className="w-full bg-transparent text-xs font-bold text-slate-900 focus:outline-none"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div
+                  onClick={() => setIsDatePickerOpen(true)}
+                  className="bg-[#f8fafc] border border-gray-200 hover:border-slate-900 rounded-2xl p-2.5 flex items-center justify-between gap-2.5 cursor-pointer transition-colors"
+                >
+                  <div className="flex items-center gap-2.5 flex-1">
+                    <Calendar className="w-4 h-4 text-slate-500 shrink-0" />
+                    <div className="flex flex-col flex-1">
+                      <span className="text-[9px] font-extrabold text-gray-400 uppercase">Date of Birth</span>
+                      <span className={`text-xs font-bold ${signupDob ? 'text-slate-900' : 'text-gray-400'}`}>
+                        {signupDob ? signupDob : 'Select Date of Birth'}
+                      </span>
+                    </div>
+                  </div>
+                  <ChevronDown className="w-4 h-4 text-gray-400 shrink-0" />
+                </div>
+                <span className="text-[10px] text-gray-400 font-medium -mt-1 ml-1">
+                  You must be at least 18 years old
+                </span>
+
+                <div className="bg-[#f8fafc] border border-gray-200 focus-within:border-slate-900 rounded-2xl p-2.5 flex items-center gap-2.5">
+                  <Lock className="w-4 h-4 text-slate-500 shrink-0" />
+                  <div className="flex flex-col flex-1">
+                    <label className="text-[9px] font-extrabold text-gray-400 uppercase">Password</label>
+                    <input
+                      type={showSignupPassword ? 'text' : 'password'}
+                      value={signupPassword}
+                      onChange={(e) => setSignupPassword(e.target.value)}
+                      placeholder="Min. 6 characters"
+                      className="w-full bg-transparent text-xs font-bold text-slate-900 focus:outline-none"
+                      required
+                    />
+                  </div>
                   <button
                     type="button"
-                    onClick={() => handleDemo('customer')}
-                    disabled={isLoading}
-                    className="py-2.5 px-3 bg-[#e6f4ea] hover:bg-[#d0ebd7] text-[#007f3e] border border-[#007f3e]/30 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 active:scale-95 transition-all"
+                    onClick={() => setShowSignupPassword((prev) => !prev)}
+                    className="p-1 text-slate-400 hover:text-slate-700 cursor-pointer"
                   >
-                    <Sparkles className="w-3.5 h-3.5" />
-                    <span>কাস্টমার ডেমো</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleDemo('admin')}
-                    disabled={isLoading}
-                    className="py-2.5 px-3 bg-[#fffbeb] hover:bg-[#fef3c7] text-[#b45309] border border-[#fde68a] rounded-xl text-xs font-black flex items-center justify-center gap-1.5 active:scale-95 transition-all"
-                  >
-                    <ShieldCheck className="w-3.5 h-3.5" />
-                    <span>অ্যাডমিন ডেমো</span>
+                    {showSignupPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
                 </div>
               </div>
-            </form>
-          )}
+            </div>
 
-          {/* TAB 2: REGISTER / CREATE ACCOUNT */}
-          {activeTab === 'register' && (
-            <form onSubmit={handleRegisterSubmit} className="space-y-3.5">
-              {/* Avatar Selector */}
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full py-3.5 rounded-2xl bg-[#131b26] hover:bg-slate-800 text-white font-extrabold text-sm shadow-md transition-all cursor-pointer text-center flex items-center justify-center gap-2 shrink-0"
+            >
+              {loading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <span>Create Account</span>}
+            </button>
+          </form>
+        )}
+
+        {/* ========================================================= */}
+        {/* SCREEN 6: EMAIL + OTP (Step 1 - Enter Email)              */}
+        {/* ========================================================= */}
+        {screen === 'email_otp_step1' && (
+          <form onSubmit={handleSendEmailOtp} className="flex-1 flex flex-col justify-between h-full animate-in fade-in duration-150">
+            <div className="w-full flex items-center justify-between pt-1 pb-2 border-b border-gray-100 shrink-0">
+              <button
+                type="button"
+                onClick={() => setScreen('create_choose')}
+                className="p-1 -ml-1 text-slate-800 hover:opacity-70 transition-opacity cursor-pointer"
+              >
+                <ChevronLeft className="w-7 h-7 stroke-[2.2]" />
+              </button>
+              <h1 className="font-extrabold text-base text-slate-900 tracking-tight">
+                BINISTA
+              </h1>
+              <div className="w-7" />
+            </div>
+
+            <div className="flex-1 flex flex-col justify-center my-auto py-3 space-y-4">
+              <div className="shrink-0">
+                <h2 className="font-extrabold text-xl text-slate-900 leading-tight">
+                  Create Account
+                </h2>
+                <p className="text-xs text-gray-500 font-medium mt-1">
+                  Enter your email address
+                </p>
+              </div>
+
+              <div className="bg-[#f8fafc] border border-gray-200 focus-within:border-slate-900 rounded-2xl p-3 flex items-center gap-3 transition-colors shrink-0">
+                <Mail className="w-5 h-5 text-slate-500 shrink-0" />
+                <div className="flex flex-col flex-1">
+                  <label className="text-[10px] font-extrabold text-gray-400 uppercase tracking-wider">
+                    Email Address
+                  </label>
+                  <input
+                    type="email"
+                    value={signupEmail}
+                    onChange={(e) => setSignupEmail(e.target.value)}
+                    placeholder="you@example.com"
+                    className="w-full bg-transparent text-xs font-bold text-slate-900 focus:outline-none placeholder-gray-400"
+                    required
+                  />
+                </div>
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full py-3.5 rounded-2xl bg-[#131b26] hover:bg-slate-800 text-white font-extrabold text-sm shadow-md transition-all cursor-pointer text-center flex items-center justify-center gap-2 shrink-0"
+            >
+              {loading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <span>Continue</span>}
+            </button>
+          </form>
+        )}
+
+        {/* ========================================================= */}
+        {/* SCREEN 7: EMAIL + OTP (Step 2 - Verify OTP)              */}
+        {/* ========================================================= */}
+        {screen === 'email_otp_step2' && (
+          <form onSubmit={handleVerifyEmailOtp} className="flex-1 flex flex-col justify-between h-full animate-in fade-in duration-150">
+            <div className="w-full flex items-center justify-between pt-1 pb-2 border-b border-gray-100 shrink-0">
+              <button
+                type="button"
+                onClick={() => setScreen('email_otp_step1')}
+                className="p-1 -ml-1 text-slate-800 hover:opacity-70 transition-opacity cursor-pointer"
+              >
+                <ChevronLeft className="w-7 h-7 stroke-[2.2]" />
+              </button>
+              <h1 className="font-extrabold text-base text-slate-900 tracking-tight">
+                BINISTA
+              </h1>
+              <div className="w-7" />
+            </div>
+
+            <div className="flex-1 flex flex-col justify-center my-auto py-3 space-y-4">
+              <div className="shrink-0">
+                <h2 className="font-extrabold text-xl text-slate-900 leading-tight">
+                  Verify OTP
+                </h2>
+                <p className="text-xs text-gray-500 font-medium mt-1">
+                  We've sent a 6 digit code to {signupEmail}
+                </p>
+              </div>
+
+              <div className="flex items-center justify-between gap-2 shrink-0">
+                {otpDigits.map((digit, idx) => (
+                  <input
+                    key={idx}
+                    id={`otp-box-${idx}`}
+                    type="text"
+                    maxLength={1}
+                    value={digit}
+                    onChange={(e) => handleOtpDigitChange(idx, e.target.value)}
+                    className="w-11 h-12 rounded-xl border border-gray-200 text-center font-black text-lg text-slate-900 focus:outline-none focus:border-slate-900 bg-[#f8fafc]"
+                  />
+                ))}
+              </div>
+
+              <div className="text-center shrink-0 pt-2">
+                <button
+                  type="button"
+                  disabled={resendTimer > 0 || loading}
+                  onClick={async (e) => {
+                    if (resendTimer > 0) return;
+                    await handleSendEmailOtp(e);
+                  }}
+                  className={`text-xs font-bold transition-colors ${
+                    resendTimer > 0
+                      ? 'text-gray-400 cursor-not-allowed'
+                      : 'text-slate-900 hover:underline cursor-pointer'
+                  }`}
+                >
+                  {resendTimer > 0
+                    ? `Resend code in 00:${resendTimer < 10 ? '0' + resendTimer : resendTimer}`
+                    : 'Resend Code'}
+                </button>
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full py-3.5 rounded-2xl bg-[#131b26] hover:bg-slate-800 text-white font-extrabold text-sm shadow-md transition-all cursor-pointer text-center flex items-center justify-center gap-2 shrink-0"
+            >
+              {loading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <span>Verify</span>}
+            </button>
+          </form>
+        )}
+
+        {/* ========================================================= */}
+        {/* SCREEN 8: EMAIL + OTP (Complete Profile)                  */}
+        {/* ========================================================= */}
+        {screen === 'email_otp_complete' && (
+          <form onSubmit={handleCreateAccountSubmit} className="flex-1 flex flex-col justify-between h-full animate-in fade-in duration-150">
+            <div className="w-full flex items-center justify-between pt-1 pb-2 border-b border-gray-100 shrink-0">
+              <button
+                type="button"
+                onClick={() => setScreen('email_otp_step2')}
+                className="p-1 -ml-1 text-slate-800 hover:opacity-70 transition-opacity cursor-pointer"
+              >
+                <ChevronLeft className="w-7 h-7 stroke-[2.2]" />
+              </button>
+              <h1 className="font-extrabold text-base text-slate-900 tracking-tight">
+                BINISTA
+              </h1>
+              <div className="w-7" />
+            </div>
+
+            <div className="flex-1 flex flex-col justify-center my-auto py-2 space-y-3">
+              <div className="shrink-0">
+                <h2 className="font-extrabold text-xl text-slate-900 leading-tight">
+                  Complete Your Profile
+                </h2>
+                <p className="text-xs text-gray-500 font-medium mt-0.5">
+                  Add a few details to get started
+                </p>
+              </div>
+
+              <div className="flex flex-col items-center justify-center shrink-0">
+                <div className="relative">
+                  <img
+                    src={
+                      signupAvatar ||
+                      'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=200&q=80'
+                    }
+                    alt="Avatar"
+                    className="w-16 h-16 rounded-full object-cover shadow-sm border border-gray-200"
+                  />
+                  <label
+                    htmlFor="signup-photo-input-2"
+                    className="absolute bottom-0 right-0 w-6 h-6 bg-slate-900 text-white rounded-full flex items-center justify-center border-2 border-white shadow-sm cursor-pointer"
+                  >
+                    <Camera className="w-3 h-3" />
+                    <input
+                      id="signup-photo-input-2"
+                      type="file"
+                      accept="image/*"
+                      onChange={handleAvatarUpload}
+                      className="hidden"
+                    />
+                  </label>
+                </div>
+                <span className="text-[11px] font-bold text-gray-500 mt-1">
+                  Add Photo (Optional)
+                </span>
+              </div>
+
+              <div className="flex flex-col gap-2 shrink-0">
+                <div className="bg-[#f8fafc] border border-gray-200 focus-within:border-slate-900 rounded-2xl p-2.5 flex items-center gap-2.5">
+                  <User className="w-4 h-4 text-slate-500 shrink-0" />
+                  <div className="flex flex-col flex-1">
+                    <label className="text-[9px] font-extrabold text-gray-400 uppercase">First Name</label>
+                    <input
+                      type="text"
+                      value={signupFirstName}
+                      onChange={(e) => setSignupFirstName(e.target.value)}
+                      placeholder="Your first name"
+                      className="w-full bg-transparent text-xs font-bold text-slate-900 focus:outline-none"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div className="bg-[#f8fafc] border border-gray-200 focus-within:border-slate-900 rounded-2xl p-2.5 flex items-center gap-2.5">
+                  <User className="w-4 h-4 text-slate-500 shrink-0" />
+                  <div className="flex flex-col flex-1">
+                    <label className="text-[9px] font-extrabold text-gray-400 uppercase">Last Name</label>
+                    <input
+                      type="text"
+                      value={signupLastName}
+                      onChange={(e) => setSignupLastName(e.target.value)}
+                      placeholder="Your last name"
+                      className="w-full bg-transparent text-xs font-bold text-slate-900 focus:outline-none"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div
+                  onClick={() => setIsDatePickerOpen(true)}
+                  className="bg-[#f8fafc] border border-gray-200 hover:border-slate-900 rounded-2xl p-2.5 flex items-center justify-between gap-2.5 cursor-pointer transition-colors"
+                >
+                  <div className="flex items-center gap-2.5 flex-1">
+                    <Calendar className="w-4 h-4 text-slate-500 shrink-0" />
+                    <div className="flex flex-col flex-1">
+                      <span className="text-[9px] font-extrabold text-gray-400 uppercase">Date of Birth</span>
+                      <span className={`text-xs font-bold ${signupDob ? 'text-slate-900' : 'text-gray-400'}`}>
+                        {signupDob ? signupDob : 'Select Date of Birth'}
+                      </span>
+                    </div>
+                  </div>
+                  <ChevronDown className="w-4 h-4 text-gray-400 shrink-0" />
+                </div>
+                <span className="text-[10px] text-gray-400 font-medium -mt-1 ml-1">
+                  You must be at least 18 years old
+                </span>
+
+                <div className="bg-[#f8fafc] border border-gray-200 focus-within:border-slate-900 rounded-2xl p-2.5 flex items-center gap-2.5">
+                  <Lock className="w-4 h-4 text-slate-500 shrink-0" />
+                  <div className="flex flex-col flex-1">
+                    <label className="text-[9px] font-extrabold text-gray-400 uppercase">Password</label>
+                    <input
+                      type={showSignupPassword ? 'text' : 'password'}
+                      value={signupPassword}
+                      onChange={(e) => setSignupPassword(e.target.value)}
+                      placeholder="Min. 6 characters"
+                      className="w-full bg-transparent text-xs font-bold text-slate-900 focus:outline-none"
+                      required
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowSignupPassword((prev) => !prev)}
+                    className="p-1 text-slate-400 hover:text-slate-700 cursor-pointer"
+                  >
+                    {showSignupPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full py-3.5 rounded-2xl bg-[#131b26] hover:bg-slate-800 text-white font-extrabold text-sm shadow-md transition-all cursor-pointer text-center flex items-center justify-center gap-2 shrink-0"
+            >
+              {loading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <span>Create Account</span>}
+            </button>
+          </form>
+        )}
+
+        {/* ========================================================= */}
+        {/* SCREEN 9: PHONE + EMAIL (NO OTP SIGNUP)                   */}
+        {/* ========================================================= */}
+        {screen === 'no_otp_signup' && (
+          <form onSubmit={handleProceedToFaceScan} className="flex-1 flex flex-col justify-between h-full animate-in fade-in duration-150">
+            <div className="w-full flex items-center justify-between pt-1 pb-2 border-b border-gray-100 shrink-0">
+              <button
+                type="button"
+                onClick={() => setScreen('create_choose')}
+                className="p-1 -ml-1 text-slate-800 hover:opacity-70 transition-opacity cursor-pointer"
+              >
+                <ChevronLeft className="w-7 h-7 stroke-[2.2]" />
+              </button>
+              <h1 className="font-extrabold text-base text-slate-900 tracking-tight">
+                BINISTA
+              </h1>
+              <div className="w-7" />
+            </div>
+
+            <div className="flex-1 flex flex-col justify-center my-auto py-2 space-y-2">
+              <div className="shrink-0">
+                <h2 className="font-extrabold text-xl text-slate-900 leading-tight">
+                  Create Account
+                </h2>
+                <p className="text-xs text-gray-500 font-medium mt-0.5">
+                  Enter your details (Face verification required)
+                </p>
+              </div>
+
+              {/* Form Input Fields */}
+              <div className="flex flex-col gap-2 shrink-0">
+                <div className="bg-[#f8fafc] border border-gray-200 focus-within:border-slate-900 rounded-2xl p-2.5 flex items-center gap-2.5">
+                  <Phone className="w-4 h-4 text-slate-500 shrink-0" />
+                  <div className="flex flex-col flex-1">
+                    <label className="text-[9px] font-extrabold text-gray-400 uppercase">Phone Number</label>
+                    <input
+                      type="tel"
+                      value={signupPhone}
+                      onChange={(e) => setSignupPhone(e.target.value)}
+                      placeholder="+880 1XXXXXXXXX"
+                      className="w-full bg-transparent text-xs font-bold text-slate-900 focus:outline-none"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div className="bg-[#f8fafc] border border-gray-200 focus-within:border-slate-900 rounded-2xl p-2.5 flex items-center gap-2.5">
+                  <Mail className="w-4 h-4 text-slate-500 shrink-0" />
+                  <div className="flex flex-col flex-1">
+                    <label className="text-[9px] font-extrabold text-gray-400 uppercase">Email Address (Optional)</label>
+                    <input
+                      type="email"
+                      value={signupEmail}
+                      onChange={(e) => setSignupEmail(e.target.value)}
+                      placeholder="you@example.com (optional)"
+                      className="w-full bg-transparent text-xs font-bold text-slate-900 focus:outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="bg-[#f8fafc] border border-gray-200 focus-within:border-slate-900 rounded-2xl p-2.5 flex items-center gap-2.5">
+                  <User className="w-4 h-4 text-slate-500 shrink-0" />
+                  <div className="flex flex-col flex-1">
+                    <label className="text-[9px] font-extrabold text-gray-400 uppercase">First Name</label>
+                    <input
+                      type="text"
+                      value={signupFirstName}
+                      onChange={(e) => setSignupFirstName(e.target.value)}
+                      placeholder="Your first name"
+                      className="w-full bg-transparent text-xs font-bold text-slate-900 focus:outline-none"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div className="bg-[#f8fafc] border border-gray-200 focus-within:border-slate-900 rounded-2xl p-2.5 flex items-center gap-2.5">
+                  <User className="w-4 h-4 text-slate-500 shrink-0" />
+                  <div className="flex flex-col flex-1">
+                    <label className="text-[9px] font-extrabold text-gray-400 uppercase">Last Name</label>
+                    <input
+                      type="text"
+                      value={signupLastName}
+                      onChange={(e) => setSignupLastName(e.target.value)}
+                      placeholder="Your last name"
+                      className="w-full bg-transparent text-xs font-bold text-slate-900 focus:outline-none"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div
+                  onClick={() => setIsDatePickerOpen(true)}
+                  className="bg-[#f8fafc] border border-gray-200 hover:border-slate-900 rounded-2xl p-2.5 flex items-center justify-between gap-2.5 cursor-pointer transition-colors"
+                >
+                  <div className="flex items-center gap-2.5 flex-1">
+                    <Calendar className="w-4 h-4 text-slate-500 shrink-0" />
+                    <div className="flex flex-col flex-1">
+                      <span className="text-[9px] font-extrabold text-gray-400 uppercase">Date of Birth</span>
+                      <span className={`text-xs font-bold ${signupDob ? 'text-slate-900' : 'text-gray-400'}`}>
+                        {signupDob ? signupDob : 'Select Date of Birth'}
+                      </span>
+                    </div>
+                  </div>
+                  <ChevronDown className="w-4 h-4 text-gray-400 shrink-0" />
+                </div>
+                <span className="text-[10px] text-gray-400 font-medium -mt-1 ml-1">
+                  You must be at least 18 years old
+                </span>
+
+                <div className="bg-[#f8fafc] border border-gray-200 focus-within:border-slate-900 rounded-2xl p-2.5 flex items-center gap-2.5">
+                  <Lock className="w-4 h-4 text-slate-500 shrink-0" />
+                  <div className="flex flex-col flex-1">
+                    <label className="text-[9px] font-extrabold text-gray-400 uppercase">Password</label>
+                    <input
+                      type={showSignupPassword ? 'text' : 'password'}
+                      value={signupPassword}
+                      onChange={(e) => setSignupPassword(e.target.value)}
+                      placeholder="Min. 6 characters"
+                      className="w-full bg-transparent text-xs font-bold text-slate-900 focus:outline-none"
+                      required
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowSignupPassword((prev) => !prev)}
+                    className="p-1 text-slate-400 hover:text-slate-700 cursor-pointer"
+                  >
+                    {showSignupPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full py-3.5 rounded-2xl bg-[#131b26] hover:bg-slate-800 text-white font-extrabold text-sm shadow-md transition-all cursor-pointer text-center flex items-center justify-center gap-2 shrink-0"
+            >
+              {loading ? (
+                <RefreshCw className="w-4 h-4 animate-spin" />
+              ) : (
+                <div className="flex items-center gap-2">
+                  <Camera className="w-4 h-4 text-emerald-400" />
+                  <span>পরবর্তী: ফেস ভেরিফিকেশন (Next: Face Scan)</span>
+                </div>
+              )}
+            </button>
+          </form>
+        )}
+
+        {/* ========================================================= */}
+        {/* SCREEN: AUTOMATIC FACE SCAN & AUTO CAPTURE VERIFICATION  */}
+        {/* ========================================================= */}
+        {screen === 'no_otp_face_scan' && (
+          <FaceScanVerification
+            userName={`${signupFirstName} ${signupLastName}`.trim()}
+            onCancel={() => {
+              setScreen('no_otp_signup');
+            }}
+            onSuccess={async (photoDataUrl) => {
+              setSignupAvatar(photoDataUrl);
+              setLoading(true);
+              try {
+                const user = await createUserAccount({
+                  phone: signupPhone,
+                  email: signupEmail,
+                  firstName: signupFirstName,
+                  lastName: signupLastName,
+                  dob: signupDob,
+                  password: signupPassword,
+                  avatarUrl: photoDataUrl,
+                });
+
+                triggerToast(`Face Verification সফল! স্বাগতম, ${user.name}`);
+                onSuccessLogin(user);
+                onClose();
+              } catch (err: any) {
+                setErrorMessage(err.message || 'অ্যাকাউন্ট তৈরি করতে ব্যর্থ হয়েছে।');
+                setScreen('no_otp_signup');
+              } finally {
+                setLoading(false);
+              }
+            }}
+          />
+        )}
+
+        {/* ========================================================= */}
+        {/* SCREEN 10: FORGOT PASSWORD (Choose Method)                */}
+        {/* ========================================================= */}
+        {screen === 'forgot_choose' && (
+          <div className="flex-1 flex flex-col justify-between h-full animate-in fade-in duration-150">
+            <div className="w-full flex items-center justify-between pt-1 pb-2 border-b border-gray-100 shrink-0">
+              <button
+                type="button"
+                onClick={() => setScreen('login')}
+                className="p-1 -ml-1 text-slate-800 hover:opacity-70 transition-opacity cursor-pointer"
+              >
+                <ChevronLeft className="w-7 h-7 stroke-[2.2]" />
+              </button>
+              <h1 className="font-extrabold text-base text-slate-900 tracking-tight">
+                BINISTA
+              </h1>
+              <div className="w-7" />
+            </div>
+
+            <div className="flex-1 flex flex-col justify-center my-auto py-3 space-y-4">
+              <div className="shrink-0">
+                <h2 className="font-extrabold text-xl text-slate-900 leading-tight">
+                  Reset Password
+                </h2>
+                <p className="text-xs text-gray-500 font-medium mt-1">
+                  Choose how you want to receive the reset code
+                </p>
+              </div>
+
+              <div className="flex flex-col gap-3 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setForgotType('phone');
+                    setForgotTarget('');
+                    setErrorMessage(null);
+                    setScreen('forgot_input');
+                  }}
+                  className="w-full p-4 rounded-2xl bg-white border border-gray-200 hover:border-slate-900 hover:bg-slate-50 transition-all text-left flex items-center justify-between cursor-pointer group shadow-2xs"
+                >
+                  <div className="flex items-center gap-3.5">
+                    <div className="p-3 bg-slate-100 group-hover:bg-slate-200 rounded-xl text-slate-900 transition-colors">
+                      <Phone className="w-5 h-5 stroke-[2.2]" />
+                    </div>
+                    <div>
+                      <h3 className="font-extrabold text-sm text-slate-900">
+                        Phone Number
+                      </h3>
+                      <p className="text-xs text-gray-500 font-medium">
+                        Send code via SMS
+                      </p>
+                    </div>
+                  </div>
+                  <ChevronRight className="w-5 h-5 text-gray-400 group-hover:text-slate-900 transition-colors" />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setForgotType('email');
+                    setForgotTarget('');
+                    setErrorMessage(null);
+                    setScreen('forgot_input');
+                  }}
+                  className="w-full p-4 rounded-2xl bg-white border border-gray-200 hover:border-slate-900 hover:bg-slate-50 transition-all text-left flex items-center justify-between cursor-pointer group shadow-2xs"
+                >
+                  <div className="flex items-center gap-3.5">
+                    <div className="p-3 bg-slate-100 group-hover:bg-slate-200 rounded-xl text-slate-900 transition-colors">
+                      <Mail className="w-5 h-5 stroke-[2.2]" />
+                    </div>
+                    <div>
+                      <h3 className="font-extrabold text-sm text-slate-900">
+                        Email Address
+                      </h3>
+                      <p className="text-xs text-gray-500 font-medium">
+                        Send code via Email
+                      </p>
+                    </div>
+                  </div>
+                  <ChevronRight className="w-5 h-5 text-gray-400 group-hover:text-slate-900 transition-colors" />
+                </button>
+              </div>
+            </div>
+
+            <div className="pt-3.5 border-t border-gray-100 text-center shrink-0">
+              <button
+                type="button"
+                onClick={() => setScreen('login')}
+                className="text-xs font-extrabold text-[#0066FF] hover:underline cursor-pointer"
+              >
+                Back to Log In
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ========================================================= */}
+        {/* SCREEN 11: FORGOT PASSWORD (Target Input)                 */}
+        {/* ========================================================= */}
+        {screen === 'forgot_input' && (
+          <form onSubmit={handleForgotInputSubmit} className="flex-1 flex flex-col justify-between h-full animate-in fade-in duration-150">
+            <div className="w-full flex items-center justify-between pt-1 pb-2 border-b border-gray-100 shrink-0">
+              <button
+                type="button"
+                onClick={() => setScreen('forgot_choose')}
+                className="p-1 -ml-1 text-slate-800 hover:opacity-70 transition-opacity cursor-pointer"
+              >
+                <ChevronLeft className="w-7 h-7 stroke-[2.2]" />
+              </button>
+              <h1 className="font-extrabold text-base text-slate-900 tracking-tight">
+                BINISTA
+              </h1>
+              <div className="w-7" />
+            </div>
+
+            <div className="flex-1 flex flex-col justify-center my-auto py-3 space-y-4">
+              <div className="shrink-0">
+                <h2 className="font-extrabold text-xl text-slate-900 leading-tight">
+                  Reset Password
+                </h2>
+                <p className="text-xs text-gray-500 font-medium mt-1">
+                  Enter your {forgotType === 'phone' ? 'phone number' : 'email address'}
+                </p>
+              </div>
+
+              <div className="bg-[#f8fafc] border border-gray-200 focus-within:border-slate-900 rounded-2xl p-3 flex items-center gap-3 transition-colors shrink-0">
+                {forgotType === 'phone' ? (
+                  <Phone className="w-5 h-5 text-slate-500 shrink-0" />
+                ) : (
+                  <Mail className="w-5 h-5 text-slate-500 shrink-0" />
+                )}
+                <div className="flex flex-col flex-1">
+                  <label className="text-[10px] font-extrabold text-gray-400 uppercase tracking-wider">
+                    {forgotType === 'phone' ? 'Phone Number' : 'Email Address'}
+                  </label>
+                  <input
+                    type={forgotType === 'phone' ? 'tel' : 'email'}
+                    value={forgotTarget}
+                    onChange={(e) => setForgotTarget(e.target.value)}
+                    placeholder={forgotType === 'phone' ? '+880 1XXXXXXXXX' : 'you@example.com'}
+                    className="w-full bg-transparent text-xs font-bold text-slate-900 focus:outline-none placeholder-gray-400"
+                    required
+                  />
+                </div>
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full py-3.5 rounded-2xl bg-[#131b26] hover:bg-slate-800 text-white font-extrabold text-sm shadow-md transition-all cursor-pointer text-center flex items-center justify-center gap-2 shrink-0"
+            >
+              {loading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <span>Continue</span>}
+            </button>
+          </form>
+        )}
+
+        {/* ========================================================= */}
+        {/* SCREEN 12: FORGOT PASSWORD (Verify Code)                 */}
+        {/* ========================================================= */}
+        {screen === 'forgot_otp' && (
+          <form onSubmit={handleVerifyForgotOtp} className="flex-1 flex flex-col justify-between h-full animate-in fade-in duration-150">
+            <div className="w-full flex items-center justify-between pt-1 pb-2 border-b border-gray-100 shrink-0">
+              <button
+                type="button"
+                onClick={() => setScreen('forgot_input')}
+                className="p-1 -ml-1 text-slate-800 hover:opacity-70 transition-opacity cursor-pointer"
+              >
+                <ChevronLeft className="w-7 h-7 stroke-[2.2]" />
+              </button>
+              <h1 className="font-extrabold text-base text-slate-900 tracking-tight">
+                BINISTA
+              </h1>
+              <div className="w-7" />
+            </div>
+
+            <div className="flex-1 flex flex-col justify-center my-auto py-3 space-y-4">
+              <div className="shrink-0">
+                <h2 className="font-extrabold text-xl text-slate-900 leading-tight">
+                  Verify Code
+                </h2>
+                <p className="text-xs text-gray-500 font-medium mt-1">
+                  We've sent a 6 digit code to {forgotTarget}
+                </p>
+              </div>
+
+              <div className="flex items-center justify-between gap-2 shrink-0">
+                {otpDigits.map((digit, idx) => (
+                  <input
+                    key={idx}
+                    id={`otp-box-${idx}`}
+                    type="text"
+                    maxLength={1}
+                    value={digit}
+                    onChange={(e) => handleOtpDigitChange(idx, e.target.value)}
+                    className="w-11 h-12 rounded-xl border border-gray-200 text-center font-black text-lg text-slate-900 focus:outline-none focus:border-slate-900 bg-[#f8fafc]"
+                  />
+                ))}
+              </div>
+
+              <div className="text-center shrink-0 pt-2">
+                <button
+                  type="button"
+                  disabled={resendTimer > 0 || loading}
+                  onClick={async (e) => {
+                    if (resendTimer > 0) return;
+                    await handleForgotInputSubmit(e);
+                  }}
+                  className={`text-xs font-bold transition-colors ${
+                    resendTimer > 0
+                      ? 'text-gray-400 cursor-not-allowed'
+                      : 'text-slate-900 hover:underline cursor-pointer'
+                  }`}
+                >
+                  {resendTimer > 0
+                    ? `Resend code in 00:${resendTimer < 10 ? '0' + resendTimer : resendTimer}`
+                    : 'Resend Code'}
+                </button>
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full py-3.5 rounded-2xl bg-[#131b26] hover:bg-slate-800 text-white font-extrabold text-sm shadow-md transition-all cursor-pointer text-center flex items-center justify-center gap-2 shrink-0"
+            >
+              {loading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <span>Verify</span>}
+            </button>
+          </form>
+        )}
+
+        {/* ========================================================= */}
+        {/* SCREEN 13: FORGOT PASSWORD (Set New Password)            */}
+        {/* ========================================================= */}
+        {screen === 'forgot_new_pass' && (
+          <form onSubmit={handleResetPasswordSubmit} className="flex-1 flex flex-col justify-between h-full animate-in fade-in duration-150">
+            <div className="w-full flex items-center justify-between pt-1 pb-2 border-b border-gray-100 shrink-0">
+              <button
+                type="button"
+                onClick={() => setScreen('forgot_otp')}
+                className="p-1 -ml-1 text-slate-800 hover:opacity-70 transition-opacity cursor-pointer"
+              >
+                <ChevronLeft className="w-7 h-7 stroke-[2.2]" />
+              </button>
+              <h1 className="font-extrabold text-base text-slate-900 tracking-tight">
+                BINISTA
+              </h1>
+              <div className="w-7" />
+            </div>
+
+            <div className="flex-1 flex flex-col justify-center my-auto py-3 space-y-4">
+              <div className="shrink-0">
+                <h2 className="font-extrabold text-xl text-slate-900 leading-tight">
+                  Set New Password
+                </h2>
+                <p className="text-xs text-gray-500 font-medium mt-1">
+                  Create a new password for your account
+                </p>
+              </div>
+
+              <div className="flex flex-col gap-3 shrink-0">
+                <div className="bg-[#f8fafc] border border-gray-200 focus-within:border-slate-900 rounded-2xl p-3 flex items-center gap-3 transition-colors">
+                  <Lock className="w-5 h-5 text-slate-500 shrink-0" />
+                  <div className="flex flex-col flex-1">
+                    <label className="text-[10px] font-extrabold text-gray-400 uppercase tracking-wider">
+                      New Password
+                    </label>
+                    <input
+                      type={showNewPass ? 'text' : 'password'}
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      placeholder="Min. 6 characters"
+                      className="w-full bg-transparent text-xs font-bold text-slate-900 focus:outline-none placeholder-gray-400"
+                      required
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowNewPass((prev) => !prev)}
+                    className="p-1 text-slate-400 hover:text-slate-700 cursor-pointer"
+                  >
+                    {showNewPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+
+                <div className="bg-[#f8fafc] border border-gray-200 focus-within:border-slate-900 rounded-2xl p-3 flex items-center gap-3 transition-colors">
+                  <Lock className="w-5 h-5 text-slate-500 shrink-0" />
+                  <div className="flex flex-col flex-1">
+                    <label className="text-[10px] font-extrabold text-gray-400 uppercase tracking-wider">
+                      Confirm Password
+                    </label>
+                    <input
+                      type={showNewPass ? 'text' : 'password'}
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      placeholder="Re-enter your password"
+                      className="w-full bg-transparent text-xs font-bold text-slate-900 focus:outline-none placeholder-gray-400"
+                      required
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full py-3.5 rounded-2xl bg-[#131b26] hover:bg-slate-800 text-white font-extrabold text-sm shadow-md transition-all cursor-pointer text-center flex items-center justify-center gap-2 shrink-0"
+            >
+              {loading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <span>Reset Password</span>}
+            </button>
+          </form>
+        )}
+
+        {/* ========================================================= */}
+        {/* CUSTOM SOFTWARE POPUP DATE PICKER DIALOG                  */}
+        {/* ========================================================= */}
+        {isDatePickerOpen && (
+          <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-200">
+            <div className="bg-white text-slate-900 rounded-3xl w-full max-w-xs overflow-hidden shadow-2xl border border-gray-100 p-5 flex flex-col gap-4 animate-in zoom-in-95 duration-150">
+              
+              {/* Modal Header */}
+              <div className="flex items-center justify-between pb-2 border-b border-gray-100">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 bg-blue-50 text-blue-600 rounded-xl">
+                    <Calendar className="w-5 h-5 stroke-[2.2]" />
+                  </div>
+                  <div>
+                    <h3 className="font-extrabold text-sm text-slate-900 leading-tight">
+                      Select Date of Birth
+                    </h3>
+                    <p className="text-[10px] text-gray-500 font-medium">
+                      Must be at least 18 years old
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsDatePickerOpen(false)}
+                  className="p-1.5 text-gray-400 hover:text-slate-900 rounded-full hover:bg-gray-100 transition-colors cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Selectors: Year & Month */}
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-[9px] font-extrabold text-gray-400 uppercase tracking-wider block mb-1">
+                    Year (বছর)
+                  </label>
+                  <select
+                    value={tempYear}
+                    onChange={(e) => setTempYear(Number(e.target.value))}
+                    className="w-full bg-[#f8fafc] border border-gray-200 text-xs font-bold text-slate-900 rounded-xl p-2 focus:outline-none focus:border-slate-900 cursor-pointer"
+                  >
+                    {Array.from({ length: 70 }, (_, i) => 2008 - i).map((yr) => (
+                      <option key={yr} value={yr}>
+                        {yr}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-[9px] font-extrabold text-gray-400 uppercase tracking-wider block mb-1">
+                    Month (মাস)
+                  </label>
+                  <select
+                    value={tempMonth}
+                    onChange={(e) => setTempMonth(Number(e.target.value))}
+                    className="w-full bg-[#f8fafc] border border-gray-200 text-xs font-bold text-slate-900 rounded-xl p-2 focus:outline-none focus:border-slate-900 cursor-pointer"
+                  >
+                    {[
+                      'January', 'February', 'March', 'April', 'May', 'June',
+                      'July', 'August', 'September', 'October', 'November', 'December'
+                    ].map((m, idx) => (
+                      <option key={m} value={idx}>
+                        {m}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Days Grid Selection */}
               <div>
-                <label className="block text-xs font-black text-gray-700 mb-1.5">
-                  প্রোফাইল ছবি নির্বাচন করুন
+                <label className="text-[9px] font-extrabold text-gray-400 uppercase tracking-wider block mb-1">
+                  Select Day (দিন)
                 </label>
-                <div className="flex items-center gap-2 overflow-x-auto pb-1.5">
-                  {AVATAR_PRESETS.map((av) => (
+                <div className="grid grid-cols-7 gap-1 max-h-32 overflow-y-auto no-scrollbar p-1 bg-gray-50 rounded-xl border border-gray-100">
+                  {Array.from({ length: new Date(tempYear, tempMonth + 1, 0).getDate() }, (_, i) => i + 1).map((d) => (
                     <button
-                      key={av.id}
+                      key={d}
                       type="button"
-                      onClick={() => setSelectedAvatar(av.url)}
-                      className={`relative w-11 h-11 rounded-full overflow-hidden border-2 shrink-0 transition-all ${
-                        selectedAvatar === av.url 
-                          ? "border-[#007f3e] ring-2 ring-[#007f3e]/30 scale-105" 
-                          : "border-gray-200 opacity-70 hover:opacity-100"
+                      onClick={() => setTempDay(d)}
+                      className={`h-7 rounded-lg font-extrabold text-xs transition-all flex items-center justify-center cursor-pointer ${
+                        tempDay === d
+                          ? 'bg-[#131b26] text-white shadow-xs scale-105'
+                          : 'text-slate-700 hover:bg-gray-200/70'
                       }`}
                     >
-                      <img src={av.url} alt={av.label} className="w-full h-full object-cover" />
-                      {selectedAvatar === av.url && (
-                        <div className="absolute inset-0 bg-[#007f3e]/30 flex items-center justify-center">
-                          <CheckCircle2 className="w-4 h-4 text-white" />
-                        </div>
-                      )}
+                      {d}
                     </button>
                   ))}
                 </div>
               </div>
 
-              {/* Name */}
-              <div>
-                <label className="block text-xs font-black text-gray-700 mb-1">
-                  আপনার পূর্ণ নাম <span className="text-red-500">*</span>
-                </label>
-                <div className="relative">
-                  <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400">
-                    <User className="w-4 h-4" />
-                  </div>
-                  <input
-                    type="text"
-                    value={regName}
-                    onChange={(e) => setRegName(e.target.value)}
-                    placeholder="যেমন: মোঃ আরিফুল ইসলাম"
-                    className="w-full bg-gray-50 border border-gray-200 focus:border-[#007f3e] focus:bg-white text-gray-900 rounded-2xl py-2.5 pl-10 pr-4 text-xs font-bold focus:outline-none transition-all placeholder:text-gray-400 placeholder:font-normal"
-                    required
-                  />
-                </div>
-              </div>
-
-              {/* Phone & Email */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                <div>
-                  <label className="block text-xs font-black text-gray-700 mb-1">
-                    মোবাইল নম্বর <span className="text-red-500">*</span>
-                  </label>
-                  <div className="relative">
-                    <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400">
-                      <Phone className="w-4 h-4" />
-                    </div>
-                    <input
-                      type="tel"
-                      value={regPhone}
-                      onChange={(e) => setRegPhone(e.target.value)}
-                      placeholder="017XXXXXXXX"
-                      className="w-full bg-gray-50 border border-gray-200 focus:border-[#007f3e] focus:bg-white text-gray-900 rounded-2xl py-2.5 pl-10 pr-4 text-xs font-bold focus:outline-none transition-all placeholder:text-gray-400 placeholder:font-normal"
-                      required
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-black text-gray-700 mb-1">
-                    ইমেইল এড্রেস (ঐচ্ছিক - অফার ও আপডেটের জন্য)
-                  </label>
-                  <div className="relative">
-                    <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400">
-                      <Mail className="w-4 h-4" />
-                    </div>
-                    <input
-                      type="email"
-                      value={regEmail}
-                      onChange={(e) => setRegEmail(e.target.value)}
-                      placeholder="example@mail.com"
-                      className="w-full bg-gray-50 border border-gray-200 focus:border-[#007f3e] focus:bg-white text-gray-900 rounded-2xl py-2.5 pl-10 pr-4 text-xs font-bold focus:outline-none transition-all placeholder:text-gray-400 placeholder:font-normal"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Delivery Area / Address */}
-              <div>
-                <label className="block text-xs font-black text-gray-700 mb-1">
-                  ডেলিভারির ঠিকানা / এলাকা (ঐচ্ছিক)
-                </label>
-                <div className="relative">
-                  <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400">
-                    <MapPin className="w-4 h-4" />
-                  </div>
-                  <input
-                    type="text"
-                    value={regAddress}
-                    onChange={(e) => setRegAddress(e.target.value)}
-                    placeholder="রোড নং, বাড়ি নং, এলাকা, শহর"
-                    className="w-full bg-gray-50 border border-gray-200 focus:border-[#007f3e] focus:bg-white text-gray-900 rounded-2xl py-2.5 pl-10 pr-4 text-xs font-bold focus:outline-none transition-all placeholder:text-gray-400 placeholder:font-normal"
-                  />
-                </div>
-              </div>
-
-              {/* Password & Confirm Password */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                <div>
-                  <label className="block text-xs font-black text-gray-700 mb-1">
-                    পাসওয়ার্ড (নূন্যতম ৬ অক্ষর) <span className="text-red-500">*</span>
-                  </label>
-                  <div className="relative">
-                    <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400">
-                      <Lock className="w-4 h-4" />
-                    </div>
-                    <input
-                      type={showRegPassword ? "text" : "password"}
-                      value={regPassword}
-                      onChange={(e) => setRegPassword(e.target.value)}
-                      placeholder="পাসওয়ার্ড লিখুন"
-                      className="w-full bg-gray-50 border border-gray-200 focus:border-[#007f3e] focus:bg-white text-gray-900 rounded-2xl py-2.5 pl-10 pr-10 text-xs font-bold focus:outline-none transition-all placeholder:text-gray-400 placeholder:font-normal"
-                      required
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowRegPassword(!showRegPassword)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400"
-                    >
-                      {showRegPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                    </button>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-black text-gray-700 mb-1">
-                    পাসওয়ার্ড নিশ্চিত করুন <span className="text-red-500">*</span>
-                  </label>
-                  <div className="relative">
-                    <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400">
-                      <Lock className="w-4 h-4" />
-                    </div>
-                    <input
-                      type={showRegPassword ? "text" : "password"}
-                      value={regConfirmPassword}
-                      onChange={(e) => setRegConfirmPassword(e.target.value)}
-                      placeholder="পুনরায় পাসওয়ার্ড"
-                      className="w-full bg-gray-50 border border-gray-200 focus:border-[#007f3e] focus:bg-white text-gray-900 rounded-2xl py-2.5 pl-10 pr-4 text-xs font-bold focus:outline-none transition-all placeholder:text-gray-400 placeholder:font-normal"
-                      required
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Terms Checkbox */}
-              <label className="flex items-start gap-2 cursor-pointer pt-1">
-                <input
-                  type="checkbox"
-                  checked={agreeTerms}
-                  onChange={(e) => setAgreeTerms(e.target.checked)}
-                  className="rounded text-[#007f3e] focus:ring-[#007f3e] w-4 h-4 mt-0.5 accent-[#007f3e]"
-                  required
-                />
-                <span className="text-[11px] text-gray-600 leading-tight">
-                  আমি অল মায়াদিন বাজারের <span className="text-[#007f3e] font-bold">শর্তাবলী</span> ও <span className="text-[#007f3e] font-bold">গোপনীয়তা নীতিমালা</span> মেনে নিচ্ছি।
+              {/* Live Age Verification Badge */}
+              <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-2 flex items-center justify-between">
+                <span className="text-[11px] font-bold text-slate-800">
+                  Selected: {tempDay}/{tempMonth + 1}/{tempYear}
                 </span>
-              </label>
-
-              <button
-                type="submit"
-                disabled={isLoading}
-                className="w-full py-3.5 bg-[#007f3e] hover:bg-[#006e36] text-white font-black text-sm rounded-2xl shadow-lg shadow-[#007f3e]/20 flex items-center justify-center gap-2 active:scale-98 transition-all disabled:opacity-50"
-              >
-                {isLoading ? (
-                  <span>অ্যাকাউন্ট তৈরি হচ্ছে...</span>
-                ) : (
-                  <>
-                    <span>অ্যাকাউন্ট তৈরি করুন</span>
-                    <ArrowRight className="w-4 h-4" />
-                  </>
-                )}
-              </button>
-            </form>
-          )}
-
-          {/* TAB 3: FORGOT PASSWORD */}
-          {activeTab === 'forgot' && (
-            <div className="space-y-4 py-2">
-              <div className="text-center">
-                <div className="w-12 h-12 rounded-2xl bg-[#25D366]/15 text-[#25D366] flex items-center justify-center mx-auto mb-2.5">
-                  <MessageSquare className="w-6 h-6 fill-current" />
-                </div>
-                <h3 className="text-base font-black text-gray-900">পাসওয়ার্ড পুনরুদ্ধার সহায়তা</h3>
-                <p className="text-xs text-gray-600 mt-1 max-w-xs mx-auto leading-relaxed">
-                  পাসওয়ার্ডের জন্য কোনো ওটিপির প্রয়োজন নেই। সরাসরি আমাদের অফিসিয়াল হোয়াটসঅ্যাপে যোগাযোগ করুন।
-                </p>
+                {(() => {
+                  const calculatedAge = calculateAge(`${tempYear}-${String(tempMonth + 1).padStart(2, '0')}-${String(tempDay).padStart(2, '0')}`);
+                  return calculatedAge >= 18 ? (
+                    <span className="text-[9px] bg-emerald-100 text-emerald-800 font-extrabold px-2 py-0.5 rounded-full">
+                      Age {calculatedAge} (18+ Eligible)
+                    </span>
+                  ) : (
+                    <span className="text-[9px] bg-rose-100 text-rose-800 font-extrabold px-2 py-0.5 rounded-full">
+                      Age {calculatedAge} (Under 18)
+                    </span>
+                  );
+                })()}
               </div>
 
-              <div className="bg-emerald-50 rounded-2xl p-3.5 border border-emerald-200">
-                <div className="flex items-center justify-between gap-2">
-                  <div>
-                    <span className="block text-[10px] font-bold text-emerald-800 uppercase tracking-wider">অফিসিয়াল হোয়াটসঅ্যাপ</span>
-                    <span className="font-mono font-black text-gray-900 text-sm">01618599077</span>
-                  </div>
-                  <a
-                    href="tel:01618599077"
-                    className="px-2.5 py-1.5 bg-emerald-600 text-white rounded-xl text-xs font-bold flex items-center gap-1 active:scale-95 transition-all shadow-sm"
-                  >
-                    <Phone className="w-3.5 h-3.5" /> কল করুন
-                  </a>
-                </div>
+              {/* Action Buttons */}
+              <div className="flex items-center gap-2 pt-0.5">
+                <button
+                  type="button"
+                  onClick={() => setIsDatePickerOpen(false)}
+                  className="flex-1 py-2 rounded-xl bg-gray-100 hover:bg-gray-200 text-slate-700 font-bold text-xs transition-colors cursor-pointer text-center"
+                >
+                  Cancel (বাতিল)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const monthNames = [
+                      'January', 'February', 'March', 'April', 'May', 'June',
+                      'July', 'August', 'September', 'October', 'November', 'December'
+                    ];
+                    const formatted = `${tempDay} ${monthNames[tempMonth]} ${tempYear}`;
+                    setSignupDob(formatted);
+                    setIsDatePickerOpen(false);
+                  }}
+                  className="flex-1 py-2 rounded-xl bg-[#131b26] hover:bg-slate-800 text-white font-extrabold text-xs shadow-xs transition-all cursor-pointer text-center"
+                >
+                  Confirm (সেট)
+                </button>
               </div>
 
-              <a
-                href={`https://wa.me/8801618599077?text=${encodeURIComponent("আসসালামু আলাইকুম, আমি আল মায়াদীন বাজার অ্যাপে আমার অ্যাকাউন্টের পাসওয়ার্ড ভুলে গেছি। অনুগ্রহ করে আমার অ্যাকাউন্ট পাসওয়ার্ড পুনরুদ্ধার করতে সাহায্য করুন।")}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="w-full py-3.5 bg-[#25D366] hover:bg-[#20bd5a] text-white font-black text-sm rounded-2xl shadow-lg shadow-[#25D366]/20 flex items-center justify-center gap-2 active:scale-98 transition-all cursor-pointer"
-              >
-                <MessageSquare className="w-4 h-4 fill-current" />
-                <span>হোয়াটসঅ্যাপে মেসেজ পাঠান</span>
-                <ExternalLink className="w-4 h-4 opacity-80" />
-              </a>
-
-              <button
-                type="button"
-                onClick={() => setActiveTab('login')}
-                className="w-full text-center text-xs font-bold text-gray-500 hover:text-gray-800 pt-1"
-              >
-                লগইন পেজে ফিরে যান
-              </button>
             </div>
-          )}
-        </div>
-      </motion.div>
+          </div>
+        )}
 
-      {/* Forgot Password OTP Verification & Reset Modal */}
-      <ForgotPasswordModal
-        isOpen={showForgotResetModal}
-        onClose={() => setShowForgotResetModal(false)}
-        initialPhone={loginEmail.includes("@") ? "" : loginEmail}
-        onSuccessLogin={(phone) => {
-          setLoginEmail(phone);
-          setLoginPassword("");
-          setSuccessMsg("আপনার পাসওয়ার্ড সফলভাবে পরিবর্তিত হয়েছে। নতুন পাসওয়ার্ড দিয়ে লগইন করুন।");
-          setActiveTab('login');
-        }}
-      />
+      </div>
     </div>
   );
 };

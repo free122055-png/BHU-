@@ -1,7 +1,7 @@
-<?xml version='1.0' encoding='utf-8'?>
+<?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">All MAYADIN FASHION</string>
-    <string name="title_activity_main">All MAYADIN FASHION</string>
-    <string name="package_name">com.dailyinternetoffer.bd</string>
-    <string name="custom_url_scheme">com.dailyinternetoffer.bd</string>
+    <string name="app_name">BINISTA</string>
+    <string name="title_activity_main">BINISTA</string>
+    <string name="package_name">com.binista.app</string>
+    <string name="custom_url_scheme">com.binista.app</string>
 </resources>

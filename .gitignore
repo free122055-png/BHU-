@@ -11,7 +11,9 @@ coverage/
 *.pem
 *.zip
 *.tar.gz
-android/app/src/main/assets/public/server.cjs*
+android/app/src/main/assets/public/
+android/app/src/main/assets/capacitor.config.json
+android/app/src/main/assets/capacitor.plugins.json
+android/app/src/main/res/xml/config.xml
 android/app/build/
 android/.gradle/
-android/app/src/main/assets/public/assets/

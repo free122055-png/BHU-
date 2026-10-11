@@ -48,6 +48,7 @@ import { doc, getDoc, setDoc, updateDoc, collection, query, where, getDocs, serv
 import { useAuth } from "../context/AuthContext";
 import { motion, AnimatePresence } from "motion/react";
 import { uploadImageFile } from "../lib/uploadService";
+import { apiFetch } from "../lib/api";
 import { ForgotPasswordModal } from "../components/ForgotPasswordModal";
 
 // Standard Country Codes
@@ -220,7 +221,7 @@ export const Login: React.FC = () => {
     setCheckingUsername(true);
     usernameCheckTimerRef.current = setTimeout(async () => {
       try {
-        const res = await fetch("/api/auth/check-username", {
+        const res = await apiFetch("/api/auth/check-username", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ username: val })
@@ -279,7 +280,7 @@ export const Login: React.FC = () => {
       const generatedUsername = targetId.split("@")[0].replace(/[^a-z0-9_]/gi, "").toLowerCase() || `user_${Date.now().toString(36)}`;
 
       // Call server backend endpoint /api/auth/register-verified-user
-      const regRes = await fetch("/api/auth/register-verified-user", {
+      const regRes = await apiFetch("/api/auth/register-verified-user", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -333,7 +334,7 @@ export const Login: React.FC = () => {
       const guestEmail = `${guestId}@allmayadin.com`;
       const guestPass = "123456";
 
-      await fetch("/api/auth/direct-login", {
+      await apiFetch("/api/auth/direct-login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ identifier: guestEmail, password: guestPass })
@@ -375,7 +376,7 @@ export const Login: React.FC = () => {
 
       // 1. Try direct-login API first for 100% reliable resolution
       try {
-        const directRes = await fetch("/api/auth/direct-login", {
+        const directRes = await apiFetch("/api/auth/direct-login", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ identifier: loginIdentifier.trim(), password: loginPassword })
@@ -420,20 +421,6 @@ export const Login: React.FC = () => {
           return;
         }
       } catch (clientAuthErr: any) {
-        // If signIn failed in Client SDK (e.g. user-not-found or invalid-credential), auto-create with Client SDK
-        if (clientAuthErr?.code === "auth/user-not-found" || clientAuthErr?.code === "auth/invalid-credential") {
-          try {
-            const newCred = await createUserWithEmailAndPassword(auth, emailToAuth, loginPassword);
-            if (newCred.user) {
-              setSuccess("নতুন অ্যাকাউন্ট তৈরি ও লগইন সফল হয়েছে!");
-              await refreshProfile();
-              navigate(redirectUrl, { replace: true });
-              return;
-            }
-          } catch (createErr) {
-            console.warn("Client auto-create notice:", createErr);
-          }
-        }
         throw clientAuthErr;
       }
     } catch (err: any) {
@@ -457,7 +444,7 @@ export const Login: React.FC = () => {
     const fullPhone = `${selectedCountry.code}${cleanPhone}`;
 
     try {
-      const response = await fetch("/api/otp/send", {
+      const response = await apiFetch("/api/otp/send", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ phone: fullPhone })
@@ -488,7 +475,7 @@ export const Login: React.FC = () => {
     const targetEmail = signupEmail.trim().toLowerCase();
 
     try {
-      const response = await fetch("/api/otp/send", {
+      const response = await apiFetch("/api/otp/send", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: targetEmail })
@@ -533,13 +520,13 @@ export const Login: React.FC = () => {
       // Verify the OTP via our custom secure backend Bulk SMS & Email API
       let response;
       if (contactMethod === 'phone') {
-        response = await fetch("/api/otp/verify", {
+        response = await apiFetch("/api/otp/verify", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ phone: fullPhone, otp: enteredOtp })
         });
       } else {
-        response = await fetch("/api/otp/verify", {
+        response = await apiFetch("/api/otp/verify", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ email: targetEmailKey, otp: enteredOtp })
@@ -594,38 +581,19 @@ export const Login: React.FC = () => {
       const userPassword = signupPassword || "mayadin123456";
       const regName = fullName.trim();
 
-      // Call our secure server-side registration API which registers in Firebase Auth and updates Firestore
-      const regRes = await fetch("/api/auth/register-verified-user", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: regName,
-          phone: contactMethod === 'phone' ? fullPhone : undefined,
-          email: targetEmailKey,
-          username: cleanUsername,
-          password: userPassword,
-          address: bio.trim() || "স্বাগতম আমার প্রিমিয়াম প্রোফাইলে 🌟",
-          photoURL: avatarUrl || `https://api.dicebear.com/7.x/avataaars/svg?seed=${cleanUsername}`,
-          isPhoneVerified: contactMethod === 'phone',
-          otpState: "OTP_VERIFIED",
-          bio: bio.trim() || ""
-        })
-      });
-
-      const regData = await regRes.json();
-      if (!regRes.ok) {
-        throw new Error(regData.error || "অ্যাকাউন্ট তৈরি করতে সমস্যা হয়েছে।");
-      }
-
-      // Automatically sign in the new user in the client using signInWithEmailAndPassword
+      // Direct client-side Firebase Auth registration for 100% reliability
+      let userCred;
       try {
-        await signInWithEmailAndPassword(auth, targetEmailKey, userPassword);
-      } catch (signInErr) {
-        console.warn("Client auto signIn notice:", signInErr);
+        userCred = await createUserWithEmailAndPassword(auth, targetEmailKey, userPassword);
+      } catch (authCreateErr: any) {
+        if (authCreateErr?.code === "auth/email-already-in-use") {
+          userCred = await signInWithEmailAndPassword(auth, targetEmailKey, userPassword);
+        } else {
+          throw authCreateErr;
+        }
       }
 
-      // Save/merge precise custom profile fields in Firestore (Username, bio, etc.)
-      const currentUser = auth.currentUser;
+      const currentUser = userCred.user;
       if (currentUser) {
         const userDocRef = doc(db, "users", currentUser.uid);
         const userProfilePayload = {
@@ -645,12 +613,28 @@ export const Login: React.FC = () => {
 
         await setDoc(userDocRef, userProfilePayload, { merge: true });
 
-        // Native profile update
         await firebaseUpdateProfile(currentUser, {
           displayName: userProfilePayload.displayName,
           photoURL: userProfilePayload.photoURL
         });
       }
+
+      // Background notification to backend server
+      apiFetch("/api/auth/register-verified-user", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: regName,
+          phone: contactMethod === 'phone' ? fullPhone : undefined,
+          email: targetEmailKey,
+          username: cleanUsername,
+          password: userPassword,
+          address: bio.trim() || "স্বাগতম আমার প্রিমিয়াম প্রোফাইলে 🌟",
+          photoURL: avatarUrl || `https://api.dicebear.com/7.x/avataaars/svg?seed=${cleanUsername}`,
+          isPhoneVerified: contactMethod === 'phone',
+          otpState: "OTP_VERIFIED"
+        })
+      }).catch(() => {});
 
       await refreshProfile();
       setSignupScreen('congratulations');

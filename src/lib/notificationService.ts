@@ -10,7 +10,7 @@ export interface BinistaNotification {
   actorName?: string;
   actorPhotoURL?: string;
   type: "like" | "comment" | "reply" | "follow" | "follow_request" | "message" | "share" | "mention" | "story";
-  contentType?: "post" | "reel" | "story" | "chat";
+  contentType?: "post" | "reel" | "story" | "chat" | "video";
   targetId?: string; // postId, reelId, storyId, or chatRoomId
   mediaThumbnail?: string;
   title: string;

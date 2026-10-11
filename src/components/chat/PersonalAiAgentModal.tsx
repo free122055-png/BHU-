@@ -15,6 +15,7 @@ import {
 import { useAuth } from "../../context/AuthContext";
 import { format } from "date-fns";
 import { bn } from "date-fns/locale";
+import { apiFetch } from "../../lib/api";
 
 interface PersonalAiAgentModalProps {
   isOpen: boolean;
@@ -215,7 +216,7 @@ export const PersonalAiAgentModal: React.FC<PersonalAiAgentModalProps> = ({
     if (!aiCommandInput.trim()) return;
     setParsingCommand(true);
     try {
-      const res = await fetch("/api/ai-agent/parse-command", {
+      const res = await apiFetch("/api/ai-agent/parse-command", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

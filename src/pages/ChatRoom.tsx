@@ -23,6 +23,7 @@ import { InstagramCallModal } from "../components/instagram/InstagramCallModal";
 import { CallType } from "../lib/webrtcCallService";
 import { format } from "date-fns";
 import { bn } from "date-fns/locale";
+import { apiFetch } from "../lib/api";
 
 interface Message {
   id: string;
@@ -218,7 +219,7 @@ export const ChatRoom: React.FC = () => {
       // Trigger Personal AI Agent Auto-Reply if recipient is offline
       if (targetPresence.status !== 'online') {
         setIsAiReplying(true);
-        fetch("/api/ai-agent/auto-reply", {
+        apiFetch("/api/ai-agent/auto-reply", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({

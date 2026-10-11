@@ -1,4 +1,5 @@
 import { VoiceMood } from "../context/VoiceGuidanceContext";
+import { apiFetch } from "./api";
 
 /**
  * Premium Voice Service for Al MAYADIN FASHION
@@ -41,7 +42,7 @@ export async function getPremiumAudioUrl(text: string, mood: VoiceMood = "INFO")
   try {
     const config = MOOD_CONFIG[mood] || MOOD_CONFIG.INFO;
     
-    const response = await fetch("/api/tts", {
+    const response = await apiFetch("/api/tts", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
